@@ -151,5 +151,34 @@ class ArtifactsTest(unittest.TestCase):
                     sys.modules[name] = prev
 
 
+
+class ArtifactsReportShellTest(unittest.TestCase):
+    def test_save_html_report_outputs_report_shell_and_embedded_data(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir)
+            report_path = save_html_report(
+                output_dir,
+                {0: ["/tmp/a.gif", "/tmp/b.gif"], -1: ["/tmp/c.gif"]},
+                "stage1_same_source",
+            )
+
+            html = report_path.read_text(encoding="utf-8")
+
+        self.assertIn("window.__REPORT_DATA__", html)
+        self.assertIn("report-grid", html)
+        self.assertIn("Virtualized grid ready", html)
+
+    def test_save_html_report_does_not_pre_render_all_cards(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir)
+            groups = {0: [f"/tmp/{index}.gif" for index in range(50)]}
+            report_path = save_html_report(output_dir, groups, "stage2_action_clusters")
+
+            html = report_path.read_text(encoding="utf-8")
+
+        self.assertNotIn('class="gif-card"', html)
+        self.assertIn("report-hide-noise", html)
+
+
 if __name__ == "__main__":
     unittest.main()

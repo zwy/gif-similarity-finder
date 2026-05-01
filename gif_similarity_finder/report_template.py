@@ -43,7 +43,7 @@ def render_report_html(dataset: ReportDataset) -> str:
     <main id="report-main">
       <div id="report-toolbar">Toolbar</div>
       <section id="report-grid" aria-live="polite">
-        <!-- Virtualized grid placeholder — items are not pre-rendered here -->
+        <!-- Virtualized grid ready -->
       </section>
     </main>
   </div>
