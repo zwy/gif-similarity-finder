@@ -1,10 +1,154 @@
+import json
+import os
+import re
+import subprocess
 import unittest
 
 from gif_similarity_finder.report_data import build_report_dataset
-from gif_similarity_finder.report_template import render_report_html
+from gif_similarity_finder.report_template import (
+    INITIAL_PREVIEW_LIMIT,
+    VISIBLE_SLICE_LIMIT,
+    render_report_html,
+)
 
 
 class ReportTemplateTest(unittest.TestCase):
+    maxDiff = None
+
+    def _render_runtime_state(
+        self,
+        html: str,
+        *,
+        search: str = "",
+        sort: str = "group-size-desc",
+        hide_noise: bool = True,
+    ) -> dict:
+        script_match = re.search(r"<script>(.*)</script>", html, re.DOTALL)
+        self.assertIsNotNone(script_match)
+        node_script = """
+const fs = require('fs');
+const vm = require('vm');
+
+const html = fs.readFileSync(0, 'utf8');
+const scriptMatch = html.match(/<script>([\\s\\S]*)<\\/script>/);
+if (!scriptMatch) {
+  throw new Error('report script not found');
+}
+
+const config = JSON.parse(process.env.REPORT_CONFIG || '{}');
+
+function createElement(id = null) {
+  const element = {
+    id,
+    value: '',
+    checked: false,
+    textContent: '',
+    className: '',
+    style: {},
+    children: [],
+    listeners: {},
+    appendChild(child) {
+      this.children.push(child);
+      return child;
+    },
+    addEventListener(type, handler) {
+      this.listeners[type] = handler;
+    },
+  };
+  let innerHTMLValue = '';
+  Object.defineProperty(element, 'innerHTML', {
+    get() {
+      return innerHTMLValue;
+    },
+    set(value) {
+      innerHTMLValue = value;
+      this.children = [];
+    },
+  });
+  return element;
+}
+
+const elements = {
+  'report-grid': createElement('report-grid'),
+  'report-search': createElement('report-search'),
+  'report-sort': createElement('report-sort'),
+  'report-hide-noise': createElement('report-hide-noise'),
+  'report-stage': createElement('report-stage'),
+  'report-summary': createElement('report-summary'),
+};
+
+elements['report-search'].value = config.search || '';
+elements['report-sort'].value = config.sort || 'group-size-desc';
+elements['report-hide-noise'].checked = config.hideNoise !== false;
+
+const document = {
+  readyState: 'complete',
+  getElementById(id) {
+    if (!elements[id]) {
+      elements[id] = createElement(id);
+    }
+    return elements[id];
+  },
+  createElement(tagName) {
+    return createElement(tagName);
+  },
+  addEventListener() {},
+};
+
+const context = {
+  window: {},
+  document,
+  console,
+  Math,
+  JSON,
+  setTimeout,
+  clearTimeout,
+};
+context.window = context;
+vm.createContext(context);
+vm.runInContext(scriptMatch[1], context);
+
+elements['report-search'].value = config.search || '';
+elements['report-sort'].value = config.sort || 'group-size-desc';
+elements['report-hide-noise'].checked = config.hideNoise !== false;
+context.renderVisibleRange();
+
+const cards = elements['report-grid'].children.filter((child) => child.className === 'report-card');
+const spacers = elements['report-grid'].children.filter((child) => child.className === 'spacer');
+
+process.stdout.write(JSON.stringify({
+  stageText: elements['report-stage'].textContent,
+  summaryText: elements['report-summary'].textContent,
+  gridCardCount: cards.length,
+  spacerCount: spacers.length,
+  paths: cards.map((card) => card.children[2]?.textContent || ''),
+  metas: cards.map((card) => card.children[1]?.textContent || ''),
+  listenerTypes: {
+    search: Object.keys(elements['report-search'].listeners),
+    sort: Object.keys(elements['report-sort'].listeners),
+    hideNoise: Object.keys(elements['report-hide-noise'].listeners),
+  },
+}));
+"""
+        result = subprocess.run(
+            ["node", "-e", node_script],
+            input=html,
+            text=True,
+            capture_output=True,
+            check=True,
+            env={
+                **os.environ,
+                "REPORT_CONFIG": json.dumps(
+                    {
+                        "search": search,
+                        "sort": sort,
+                        "hideNoise": hide_noise,
+                    }
+                ),
+            },
+        )
+        return json.loads(result.stdout)
+
     def test_render_report_html_outputs_shared_app_shell(self) -> None:
         dataset = build_report_dataset({0: ["a.gif", "b.gif"], -1: ["c.gif"]}, stage="stage1_same_source")
 
@@ -29,34 +173,43 @@ class ReportTemplateTest(unittest.TestCase):
 
         # Ensure we have a bounded preview slice rather than nearly all items.
         card_count = html.count('class="report-card"')
-        self.assertEqual(card_count, 12)
-        self.assertIn("renderVisibleRange", html)
-        self.assertIn("const INITIAL_PREVIEW_LIMIT = 12", html)
-        self.assertIn("const VISIBLE_SLICE_LIMIT = 24", html)
-        self.assertIn("initialItems.slice(0, VISIBLE_SLICE_LIMIT)", html)
-        self.assertNotIn("initialItems.forEach(function(item)", html)
-        self.assertIn("filter((item) => !item.is_noise)", html)
+        self.assertGreater(card_count, 0)
+        self.assertLess(card_count, total)
+        self.assertLessEqual(card_count, INITIAL_PREVIEW_LIMIT)
+
+        runtime = self._render_runtime_state(html)
+        self.assertGreater(runtime["gridCardCount"], 0)
+        self.assertLess(runtime["gridCardCount"], total)
+        self.assertLessEqual(runtime["gridCardCount"], VISIBLE_SLICE_LIMIT)
+        self.assertEqual(runtime["spacerCount"], 1)
 
     def test_render_report_html_wires_toolbar_controls(self) -> None:
-        dataset = build_report_dataset({0: ["a.gif"], -1: ["noise.gif"]}, stage="stage1_same_source")
+        dataset = build_report_dataset({0: ["b.gif", "a.gif"], -1: ["noise.gif"]}, stage="stage1_same_source")
 
         html = render_report_html(dataset)
+        runtime = self._render_runtime_state(html)
+        runtime_with_noise = self._render_runtime_state(html, hide_noise=False)
+        runtime_search = self._render_runtime_state(html, search="b")
+        runtime_sorted = self._render_runtime_state(html, sort="name-asc", hide_noise=False)
 
-        self.assertIn("document.getElementById('report-search').addEventListener", html)
-        self.assertIn("document.getElementById('report-sort').addEventListener", html)
-        self.assertIn("document.getElementById('report-hide-noise').addEventListener", html)
         self.assertIn('<input id="report-hide-noise" type="checkbox" checked>', html)
-        self.assertIn("if (hideNoise)", html)
-        self.assertIn("sortValue === 'name-asc'", html)
-        self.assertIn("right.group_size - left.group_size", html)
+        self.assertEqual(runtime["listenerTypes"]["search"], ["input"])
+        self.assertEqual(runtime["listenerTypes"]["sort"], ["change"])
+        self.assertEqual(runtime["listenerTypes"]["hideNoise"], ["change"])
+        self.assertNotIn("noise.gif", runtime["paths"])
+        self.assertIn("noise.gif", runtime_with_noise["paths"])
+        self.assertEqual(runtime_search["paths"], ["b.gif"])
+        self.assertEqual(runtime_sorted["paths"][0], "a.gif")
 
     def test_render_report_html_hides_noise_in_initial_slice_by_default(self) -> None:
         dataset = build_report_dataset({-1: ["noise-a.gif", "noise-b.gif"]}, stage="stage2_action_clusters")
 
         html = render_report_html(dataset)
+        runtime = self._render_runtime_state(html)
 
         self.assertNotIn('class="report-card"', html)
-        self.assertIn("if (hideNoise)", html)
+        self.assertEqual(runtime["gridCardCount"], 0)
+        self.assertEqual(runtime["spacerCount"], 1)
 
     def test_render_report_html_renders_a_visible_preview_slice(self) -> None:
         dataset = build_report_dataset({0: ["a.gif", "b.gif"]}, stage="stage1_same_source")
@@ -89,6 +242,8 @@ class ReportTemplateTest(unittest.TestCase):
 
         html1 = render_report_html(ds1)
         html2 = render_report_html(ds2)
+        runtime1 = self._render_runtime_state(html1)
+        runtime2 = self._render_runtime_state(html2)
 
         self.assertIn("Same-source groups", html1)
         self.assertIn("Action clusters", html2)
@@ -96,12 +251,10 @@ class ReportTemplateTest(unittest.TestCase):
         self.assertIn('data-stage-key="stage2_action_clusters"', html2)
         self.assertIn("Source group 0", html1)
         self.assertIn("Cluster 0", html2)
-        self.assertIn('const CARD_GROUP_LABEL = "Source group"', html1)
-        self.assertIn('const CARD_GROUP_LABEL = "Cluster"', html2)
-        self.assertIn('const STAGE_LABEL = "Same-source groups"', html1)
-        self.assertIn('const STAGE_LABEL = "Action clusters"', html2)
-        self.assertIn("document.getElementById('report-stage').textContent = STAGE_LABEL", html1)
-        self.assertIn("CARD_GROUP_LABEL + ' ' + item.group_id", html1)
+        self.assertEqual(runtime1["stageText"], "Same-source groups")
+        self.assertEqual(runtime2["stageText"], "Action clusters")
+        self.assertEqual(runtime1["metas"][0], "Source group 0 · 1 items")
+        self.assertEqual(runtime2["metas"][0], "Cluster 0 · 1 items")
         self.assertNotIn("Action clusters", html1)
         self.assertNotIn("Same-source groups", html2)
 
