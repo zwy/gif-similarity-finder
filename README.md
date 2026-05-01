@@ -87,10 +87,19 @@ output/
 ├── stage2_action_clusters.json       # Stage 2：动作/场景聚类（JSON）
 ├── clip_embeddings_cache.npz         # CLIP 向量缓存（增量复用，无需重算）
 ├── faiss.index                       # FAISS 索引（可用于后续查询）
-├── report_stage1_same_source.html    # Stage 1 可视化报告（浏览器打开）
-├── report_stage2_action_clusters.html# Stage 2 可视化报告（浏览器打开）
+├── report_stage1_same_source.html    # Stage 1 离线 HTML 报告（浏览器打开）
+├── report_stage2_action_clusters.html# Stage 2 离线 HTML 报告（浏览器打开）
 └── umap_clusters.png                 # UMAP 2D 聚类散点图（可选）
 ```
+
+### HTML 报告说明
+
+- `report_stage1_same_source.html` 和 `report_stage2_action_clusters.html` 都是**完全离线**的单文件 HTML，内联 CSS / JS，直接用浏览器打开即可。
+- 两份报告共用同一个离线 report shell，只是展示的数据集和阶段标签不同：Stage 1 显示同源分组，Stage 2 显示动作 / 场景聚类。
+- 报告会把结构化数据 payload 直接嵌入 HTML，打开文件时由页面内脚本完成搜索、排序和列表刷新，不依赖外部接口或额外静态资源。
+- 为了避免大数据集时 HTML 体积和首屏渲染过重，报告不会预先把所有 GIF 卡片一次性写进页面；初始只包含一个有限预览切片，运行时也只渲染有限可见切片，适合在约 10 万 GIF 规模下离线查看结果。
+- 当前提供的交互控件包括：`search`（按文件名搜索）、`sort`（按簇大小 / 名称排序）和 `hide-noise`（隐藏噪声项）。
+- 噪声簇（`-1`）默认隐藏；取消 `hide-noise` 后才会显示。
 
 ### JSON 格式示例
 
