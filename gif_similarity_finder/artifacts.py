@@ -5,6 +5,8 @@ from pathlib import Path
 import numpy as np
 
 from .types import EmbeddingCacheData
+from .report_data import build_report_dataset
+from .report_template import render_report_html
 
 
 def save_group_json(path: Path, groups: dict[int, list[str]]) -> Path:
@@ -35,32 +37,22 @@ def load_embedding_cache(path: Path) -> EmbeddingCacheData | None:
 
 
 def save_html_report(output_dir: Path, groups: dict[int, list[str]], stage: str) -> Path:
+    """Build a structured dataset and render the lightweight HTML shell.
+
+    Uses build_report_dataset and render_report_html to produce the
+    final HTML string, then writes it to report_{stage}.html inside
+    output_dir. IO errors are allowed to propagate.
+    """
     html_path = output_dir / f"report_{stage}.html"
-    lines = [
-        "<!DOCTYPE html><html><head><meta charset='utf-8'>",
-        f"<title>GIF Similarity Report – {stage}</title>",
-        "</head><body>",
-        f"<h1>GIF Similarity Report — {stage}</h1>",
-        f"<p>Total groups: {len(groups)} | Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}</p>",
-    ]
-    for group_id, paths in sorted(groups.items(), key=lambda item: -len(item[1])):
-        label = "Noise/Ungrouped" if str(group_id) == "-1" else f"Group {group_id}"
-        lines.append(f"<h2>{label}</h2>")
-        for path in paths[:40]:
-            name = Path(path).name
-            lines.append(f"<div>{name}</div>")
-    lines.append("</body></html>")
 
-    # Ensure output directory exists and write the primary report. Let
-    # any IO errors propagate to the caller instead of silently swallowing
-    # them so callers can handle failures appropriately.
+    # Build the structured dataset and render the HTML shell
+    dataset = build_report_dataset(groups, stage=stage)
+    html = render_report_html(dataset)
+
+    # Ensure output directory exists and write the primary report.
     output_dir.mkdir(parents=True, exist_ok=True)
-    html_path.write_text("\n".join(lines), encoding="utf-8")
+    html_path.write_text(html, encoding="utf-8")
 
-    # Return the report path inside the provided output directory. Do not
-    # create any persistent fallback copies — the caller controls output
-    # directory lifetime (e.g., TemporaryDirectory). This keeps behavior
-    # aligned with the Task 5 spec.
     return html_path
 
 

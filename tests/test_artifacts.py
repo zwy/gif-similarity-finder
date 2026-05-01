@@ -47,6 +47,7 @@ class ArtifactsTest(unittest.TestCase):
             # while that directory is active; do the assertion inside the
             # TemporaryDirectory scope.
             self.assertTrue(report_path.exists())
+            self.assertEqual(report_path.name, "report_stage1_same_source.html")
 
     def test_save_hnsw_index_creates_file(self) -> None:
         try:
@@ -149,6 +150,82 @@ class ArtifactsTest(unittest.TestCase):
                     del sys.modules[name]
                 else:
                     sys.modules[name] = prev
+
+
+
+class ArtifactsReportShellTest(unittest.TestCase):
+    def _extract_report_data(self, html: str) -> dict:
+        marker = "window.__REPORT_DATA__ = "
+        marker_index = html.find(marker)
+        self.assertNotEqual(marker_index, -1)
+        payload, _ = json.JSONDecoder().raw_decode(html[marker_index + len(marker):])
+        return payload
+
+    def test_save_html_report_outputs_report_shell_and_embedded_data(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir)
+            report_path = save_html_report(
+                output_dir,
+                {0: ["/tmp/a.gif", "/tmp/b.gif"], -1: ["/tmp/c.gif"]},
+                "stage1_same_source",
+            )
+
+            html = report_path.read_text(encoding="utf-8")
+
+        self.assertIn("window.__REPORT_DATA__", html)
+        self.assertIn("report-grid", html)
+        self.assertIn("Virtualized grid ready", html)
+        self.assertIn("stage1_same_source", html)
+        self.assertIn("Total items", html)
+
+    def test_save_html_report_does_not_pre_render_all_cards(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir)
+            groups = {0: [f"/tmp/{index}.gif" for index in range(50)]}
+            report_path = save_html_report(output_dir, groups, "stage2_action_clusters")
+
+            html = report_path.read_text(encoding="utf-8")
+
+        self.assertNotIn('class="gif-card"', html)
+        self.assertIn("report-hide-noise", html)
+
+    def test_save_html_report_large_dataset_keeps_embedded_data_and_preview_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir)
+            smaller_groups = {0: [f"/tmp/smaller-{index}.gif" for index in range(100)]}
+            smaller_report = save_html_report(output_dir, smaller_groups, "stage2_action_clusters")
+            smaller_html = smaller_report.read_text(encoding="utf-8")
+
+        primary_total = 700
+        secondary_total = 300
+        noise_total = 50
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir)
+            groups = {
+                10: [f"/tmp/primary-{index}.gif" for index in range(primary_total)],
+                2: [f"/tmp/secondary-{index}.gif" for index in range(secondary_total)],
+                -1: [f"/tmp/noise-{index}.gif" for index in range(noise_total)],
+            }
+            report_path = save_html_report(output_dir, groups, "stage2_action_clusters")
+
+            html = report_path.read_text(encoding="utf-8")
+
+        payload = self._extract_report_data(html)
+        smaller_payload = self._extract_report_data(smaller_html)
+        preview_count = html.count('class="report-card"')
+        smaller_preview_count = smaller_html.count('class="report-card"')
+
+        self.assertEqual(smaller_payload["summary"]["total_items"], len(smaller_payload["items"]))
+        self.assertGreater(smaller_preview_count, 0)
+        self.assertLess(smaller_preview_count, smaller_payload["summary"]["total_items"])
+        self.assertEqual(payload["summary"]["total_items"], primary_total + secondary_total + noise_total)
+        self.assertEqual(len(payload["items"]), primary_total + secondary_total + noise_total)
+        self.assertEqual(payload["summary"]["largest_group_size"], primary_total)
+        self.assertTrue(any(item["is_noise"] for item in payload["items"]))
+        self.assertGreater(preview_count, 0)
+        self.assertLess(preview_count, primary_total + secondary_total + noise_total)
+        self.assertLessEqual(preview_count, smaller_preview_count)
+        self.assertIn("report-grid", html)
 
 
 if __name__ == "__main__":
