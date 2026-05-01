@@ -28,8 +28,6 @@ def render_report_html(dataset: ReportDataset) -> str:
     stage_label = stage_labels.get(dataset.summary.stage, dataset.summary.stage)
     card_group_label = card_group_labels.get(dataset.summary.stage, "Group")
     initial_items = [item for item in payload["items"] if not item["is_noise"]][:INITIAL_PREVIEW_LIMIT]
-    if not initial_items and payload["items"]:
-        initial_items = payload["items"][:INITIAL_PREVIEW_LIMIT]
     initial_cards = "".join(
         (
             '<article class="report-card">'
@@ -101,9 +99,6 @@ def render_report_html(dataset: ReportDataset) -> str:
       var initialItems = window.__REPORT_DATA__.items.slice();
       if (hideNoise) {{
         initialItems = initialItems.filter((item) => !item.is_noise);
-        if (!initialItems.length) {{
-          initialItems = window.__REPORT_DATA__.items.slice();
-        }}
       }}
       if (searchValue) {{
         initialItems = initialItems.filter((item) => item.name.toLowerCase().includes(searchValue));
