@@ -21,13 +21,18 @@ def render_report_html(dataset: ReportDataset) -> str:
         "stage1_same_source": "Same-source groups",
         "stage2_action_clusters": "Action clusters",
     }
+    card_group_labels = {
+        "stage1_same_source": "Source group",
+        "stage2_action_clusters": "Cluster",
+    }
     stage_label = stage_labels.get(dataset.summary.stage, dataset.summary.stage)
+    card_group_label = card_group_labels.get(dataset.summary.stage, "Group")
     initial_items = payload["items"][:INITIAL_PREVIEW_LIMIT]
     initial_cards = "".join(
         (
             '<article class="report-card">'
             f'<div class="report-card-name">{escape(item["name"])}</div>'
-            f'<div class="report-card-meta">Group {escape(item["group_id"])} · {item["group_size"]} items</div>'
+            f'<div class="report-card-meta">{escape(card_group_label)} {escape(item["group_id"])} · {item["group_size"]} items</div>'
             f'<div class="report-card-path">{escape(item["path"])}</div>'
             "</article>"
         )
@@ -80,6 +85,7 @@ def render_report_html(dataset: ReportDataset) -> str:
   <script>
     // Embedded report data for offline viewing
     window.__REPORT_DATA__ = {payload_json};
+    const CARD_GROUP_LABEL = {json.dumps(card_group_label)};
 
     // Lightweight virtualization renderer: creates a spacer instead of rendering
     // every gif-card node. Real rendering will be implemented separately.
@@ -117,7 +123,7 @@ def render_report_html(dataset: ReportDataset) -> str:
         name.textContent = item.name;
         var meta = document.createElement('div');
         meta.className = 'report-card-meta';
-        meta.textContent = 'Group ' + item.group_id + ' · ' + item.group_size + ' items';
+        meta.textContent = CARD_GROUP_LABEL + ' ' + item.group_id + ' · ' + item.group_size + ' items';
         var path = document.createElement('div');
         path.className = 'report-card-path';
         path.textContent = item.path;

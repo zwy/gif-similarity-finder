@@ -179,9 +179,8 @@ class ArtifactsReportShellTest(unittest.TestCase):
 
             html = report_path.read_text(encoding="utf-8")
 
-        self.assertLess(html.count('class="report-card"'), 50)
+        self.assertNotIn('class="gif-card"', html)
         self.assertIn("report-hide-noise", html)
-        self.assertIn("Action clusters", html)
 
 
 if __name__ == "__main__":

@@ -1,11 +1,7 @@
 import unittest
 
 from gif_similarity_finder.report_data import build_report_dataset
-from gif_similarity_finder.report_template import (
-    INITIAL_PREVIEW_LIMIT,
-    VISIBLE_SLICE_LIMIT,
-    render_report_html,
-)
+from gif_similarity_finder.report_template import render_report_html
 
 
 class ReportTemplateTest(unittest.TestCase):
@@ -33,10 +29,10 @@ class ReportTemplateTest(unittest.TestCase):
 
         # Ensure we have a bounded preview slice rather than nearly all items.
         card_count = html.count('class="report-card"')
-        self.assertEqual(card_count, INITIAL_PREVIEW_LIMIT)
+        self.assertEqual(card_count, 12)
         self.assertIn("renderVisibleRange", html)
-        self.assertIn(f"const INITIAL_PREVIEW_LIMIT = {INITIAL_PREVIEW_LIMIT}", html)
-        self.assertIn(f"const VISIBLE_SLICE_LIMIT = {VISIBLE_SLICE_LIMIT}", html)
+        self.assertIn("const INITIAL_PREVIEW_LIMIT = 12", html)
+        self.assertIn("const VISIBLE_SLICE_LIMIT = 24", html)
         self.assertIn("initialItems.slice(0, VISIBLE_SLICE_LIMIT)", html)
         self.assertIn("filter((item) => !item.is_noise)", html)
 
@@ -88,6 +84,8 @@ class ReportTemplateTest(unittest.TestCase):
         self.assertIn("Action clusters", html2)
         self.assertIn('data-stage-key="stage1_same_source"', html1)
         self.assertIn('data-stage-key="stage2_action_clusters"', html2)
+        self.assertIn("Source group 0", html1)
+        self.assertIn("Cluster 0", html2)
         self.assertNotIn("Action clusters", html1)
         self.assertNotIn("Same-source groups", html2)
 
