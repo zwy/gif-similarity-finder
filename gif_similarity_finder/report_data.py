@@ -48,11 +48,11 @@ def build_report_dataset(groups: dict[int, list[str]], stage: str) -> ReportData
     for raw_group_id, paths in ordered_groups:
         is_noise = int(raw_group_id) == -1
         size = len(paths)
-        largest_group_size = max(largest_group_size, size)
         if is_noise:
             noise_items += size
         else:
             grouped_items += size
+            largest_group_size = max(largest_group_size, size)
 
         group_rows.append(
             ReportGroup(

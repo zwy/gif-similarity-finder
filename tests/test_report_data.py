@@ -28,6 +28,16 @@ class ReportDataTest(unittest.TestCase):
         self.assertTrue(all(item.is_noise for item in dataset.items))
         self.assertTrue(dataset.groups[0].is_noise)
 
+    def test_build_report_dataset_excludes_noise_from_largest_group_size(self) -> None:
+        groups = {
+            1: ["a.gif", "b.gif", "c.gif"],
+            -1: ["n1.gif", "n2.gif", "n3.gif", "n4.gif"],
+        }
+
+        dataset = build_report_dataset(groups, stage="stage2_action_clusters")
+
+        self.assertEqual(dataset.summary.largest_group_size, 3)
+
 
 if __name__ == "__main__":
     unittest.main()
