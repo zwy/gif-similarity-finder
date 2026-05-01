@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import unittest
 
@@ -25,6 +26,8 @@ class ReportTemplateTest(unittest.TestCase):
         ready_state: str = "complete",
         fire_dom_content_loaded: bool = False,
     ) -> dict:
+        if shutil.which("node") is None:
+            self.skipTest("node is required for report runtime tests")
         script_match = re.search(r"<script>(.*)</script>", html, re.DOTALL)
         self.assertIsNotNone(script_match)
         node_script = """
@@ -274,8 +277,8 @@ process.stdout.write(JSON.stringify({
 
         self.assertIn("Same-source groups", html1)
         self.assertIn("Action clusters", html2)
-        self.assertIn('data-stage-key="stage1_same_source"', html1)
-        self.assertIn('data-stage-key="stage2_action_clusters"', html2)
+        self.assertIn('<p id="report-stage-label" data-stage-key="stage1_same_source"></p>', html1)
+        self.assertIn('<p id="report-stage-label" data-stage-key="stage2_action_clusters"></p>', html2)
         self.assertIn("Source group 0", html1)
         self.assertIn("Cluster 0", html2)
         self.assertEqual(runtime1["stageText"], "Same-source groups")
