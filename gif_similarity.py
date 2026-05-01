@@ -319,30 +319,18 @@ def extract_all_embeddings(
     return valid_paths, embeddings
 
 
-def build_faiss_index(embeddings: np.ndarray):
-    """Build FAISS IVF index for fast nearest-neighbor search."""
-    import faiss
+def build_hnswlib_index(embeddings: np.ndarray, index_path: Path):
+    """Build hnswlib HNSW index (replaces faiss — no OpenMP conflict on macOS)."""
+    import hnswlib
 
-    d = embeddings.shape[1]  # 512 for ViT-B/32
-    n = embeddings.shape[0]
-
-    if n < 1000:
-        # Small dataset: use flat index
-        index = faiss.IndexFlatIP(d)
-        index.add(embeddings)
-        log.info(f"FAISS Flat index built ({n} vectors, dim={d})")
-    else:
-        # Larger dataset: IVF index
-        nlist = min(int(np.sqrt(n)), 256)
-        quantizer = faiss.IndexFlatIP(d)
-        index = faiss.IndexIVFFlat(quantizer, d, nlist, faiss.METRIC_INNER_PRODUCT)
-        index.train(embeddings)
-        index.add(embeddings)
-        index.nprobe = min(nlist, 32)
-        log.info(f"FAISS IVF index built ({n} vectors, nlist={nlist}, dim={d})")
-
+    n, d = embeddings.shape
+    index = hnswlib.Index(space="cosine", dim=d)
+    index.init_index(max_elements=n, ef_construction=200, M=16)
+    index.add_items(embeddings, list(range(n)))
+    index.set_ef(50)
+    index.save_index(str(index_path))
+    log.info(f"hnswlib index saved: {index_path} ({n} vectors, dim={d})")
     return index
-
 
 def cluster_hdbscan(embeddings: np.ndarray, min_cluster_size: int) -> np.ndarray:
     """Cluster embeddings with HDBSCAN."""
@@ -389,12 +377,9 @@ def stage2_action_clustering(
         log.error("No valid embeddings extracted. Exiting stage 2.")
         return {}
 
-    # Faiss index (optional, useful for nearest-neighbor queries later)
-    faiss_index = build_faiss_index(embeddings)
-    faiss_index_path = output_dir / "faiss.index"
-    import faiss
-    faiss.write_index(faiss_index, str(faiss_index_path))
-    log.info(f"FAISS index saved: {faiss_index_path}")
+    # hnswlib index (replaces faiss — no OpenMP conflict on macOS)
+    index_path = output_dir / "hnsw.index"
+    build_hnswlib_index(embeddings, index_path)
 
     # Cluster
     labels = cluster_hdbscan(embeddings, min_cluster_size)
