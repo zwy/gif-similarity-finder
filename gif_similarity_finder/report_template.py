@@ -85,6 +85,7 @@ def render_report_html(dataset: ReportDataset) -> str:
   <script>
     // Embedded report data for offline viewing
     window.__REPORT_DATA__ = {payload_json};
+    const STAGE_LABEL = {json.dumps(stage_label)};
     const CARD_GROUP_LABEL = {json.dumps(card_group_label)};
 
     // Lightweight virtualization renderer: creates a spacer instead of rendering
@@ -138,7 +139,7 @@ def render_report_html(dataset: ReportDataset) -> str:
     document.getElementById('report-search').addEventListener('input', renderVisibleRange);
     document.getElementById('report-sort').addEventListener('change', renderVisibleRange);
     document.getElementById('report-hide-noise').addEventListener('change', renderVisibleRange);
-    document.getElementById('report-stage').textContent = window.__REPORT_DATA__.summary.stage;
+    document.getElementById('report-stage').textContent = STAGE_LABEL;
     document.getElementById('report-summary').textContent =
       'Total items: ' + window.__REPORT_DATA__.summary.total_items;
 
