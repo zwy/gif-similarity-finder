@@ -36,8 +36,11 @@ class ReportDataset:
     items: list[ReportItem]
 
 
-def build_report_dataset(groups: dict[int, list[str]], stage: str) -> ReportDataset:
-    ordered_groups = sorted(groups.items(), key=lambda item: (item[0] == -1, -len(item[1]), str(item[0])))
+def build_report_dataset(groups: dict[int | str, list[str]], stage: str) -> ReportDataset:
+    ordered_groups = sorted(
+        groups.items(),
+        key=lambda item: (int(item[0]) == -1, -len(item[1]), int(item[0])),
+    )
     group_rows: list[ReportGroup] = []
     item_rows: list[ReportItem] = []
 

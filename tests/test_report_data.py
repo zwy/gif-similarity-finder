@@ -38,6 +38,24 @@ class ReportDataTest(unittest.TestCase):
 
         self.assertEqual(dataset.summary.largest_group_size, 3)
 
+    def test_build_report_dataset_orders_equal_size_groups_numerically(self) -> None:
+        groups = {
+            10: ["ten-a.gif", "ten-b.gif"],
+            2: ["two-a.gif", "two-b.gif"],
+        }
+
+        dataset = build_report_dataset(groups, stage="stage1_same_source")
+
+        self.assertEqual([group.group_id for group in dataset.groups], ["2", "10"])
+
+    def test_build_report_dataset_accepts_string_noise_group_key(self) -> None:
+        groups = {"-1": ["noise-a.gif"], 1: ["a.gif"]}
+
+        dataset = build_report_dataset(groups, stage="stage2_action_clusters")
+
+        self.assertEqual(dataset.groups[-1].group_id, "-1")
+        self.assertTrue(dataset.groups[-1].is_noise)
+
 
 if __name__ == "__main__":
     unittest.main()
