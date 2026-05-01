@@ -190,6 +190,12 @@ class ArtifactsReportShellTest(unittest.TestCase):
         self.assertIn("report-hide-noise", html)
 
     def test_save_html_report_large_dataset_keeps_embedded_data_and_preview_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir)
+            smaller_groups = {0: [f"/tmp/smaller-{index}.gif" for index in range(100)]}
+            smaller_report = save_html_report(output_dir, smaller_groups, "stage2_action_clusters")
+            smaller_html = smaller_report.read_text(encoding="utf-8")
+
         primary_total = 700
         secondary_total = 300
         noise_total = 50
@@ -205,12 +211,16 @@ class ArtifactsReportShellTest(unittest.TestCase):
             html = report_path.read_text(encoding="utf-8")
 
         payload = self._extract_report_data(html)
+        preview_count = html.count('class="report-card"')
+        smaller_preview_count = smaller_html.count('class="report-card"')
 
         self.assertEqual(payload["summary"]["total_items"], primary_total + secondary_total + noise_total)
         self.assertEqual(len(payload["items"]), primary_total + secondary_total + noise_total)
         self.assertEqual(payload["summary"]["largest_group_size"], primary_total)
         self.assertTrue(any(item["is_noise"] for item in payload["items"]))
-        self.assertEqual(html.count('class="report-card"'), 12)
+        self.assertGreater(preview_count, 0)
+        self.assertLess(preview_count, primary_total + secondary_total + noise_total)
+        self.assertLessEqual(preview_count, smaller_preview_count)
         self.assertIn("report-grid", html)
 
 

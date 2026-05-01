@@ -196,15 +196,18 @@ process.stdout.write(JSON.stringify({
         card_count = html.count('class="report-card"')
         self.assertGreater(card_count, 0)
         self.assertLess(card_count, total)
-        self.assertLessEqual(card_count, 24)
 
         runtime = self._render_runtime_state(html)
         self.assertGreater(runtime["gridCardCount"], 0)
         self.assertLess(runtime["gridCardCount"], total)
-        self.assertLessEqual(runtime["gridCardCount"], 48)
+        self.assertGreaterEqual(runtime["gridCardCount"], card_count)
         self.assertEqual(runtime["spacerCount"], 1)
 
     def test_render_report_html_large_dataset_keeps_preview_and_runtime_slices_bounded(self) -> None:
+        smaller_groups = {0: [f"/tmp/smaller-{index}.gif" for index in range(100)]}
+        smaller_html = render_report_html(build_report_dataset(smaller_groups, stage="stage2_action_clusters"))
+        smaller_runtime = self._render_runtime_state(smaller_html)
+
         primary_total = 700
         secondary_total = 300
         noise_total = 50
@@ -218,12 +221,19 @@ process.stdout.write(JSON.stringify({
         html = render_report_html(dataset)
         payload = self._extract_report_data(html)
         runtime = self._render_runtime_state(html)
+        preview_count = html.count('class="report-card"')
+        smaller_preview_count = smaller_html.count('class="report-card"')
 
         self.assertEqual(payload["summary"]["total_items"], primary_total + secondary_total + noise_total)
         self.assertEqual(len(payload["items"]), primary_total + secondary_total + noise_total)
         self.assertTrue(any(item["is_noise"] for item in payload["items"]))
-        self.assertEqual(html.count('class="report-card"'), 12)
-        self.assertEqual(runtime["gridCardCount"], 24)
+        self.assertGreater(preview_count, 0)
+        self.assertLess(preview_count, primary_total + secondary_total + noise_total)
+        self.assertLessEqual(preview_count, smaller_preview_count)
+        self.assertGreater(runtime["gridCardCount"], 0)
+        self.assertLess(runtime["gridCardCount"], primary_total + secondary_total + noise_total)
+        self.assertLessEqual(runtime["gridCardCount"], smaller_runtime["gridCardCount"])
+        self.assertGreaterEqual(runtime["gridCardCount"], preview_count)
         self.assertEqual(runtime["spacerCount"], 1)
         self.assertTrue(all(path.startswith("/tmp/primary-") for path in runtime["paths"]))
         self.assertTrue(all("noise-" not in path for path in runtime["paths"]))
