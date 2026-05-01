@@ -6,11 +6,7 @@ import subprocess
 import unittest
 
 from gif_similarity_finder.report_data import build_report_dataset
-from gif_similarity_finder.report_template import (
-    INITIAL_PREVIEW_LIMIT,
-    VISIBLE_SLICE_LIMIT,
-    render_report_html,
-)
+from gif_similarity_finder.report_template import render_report_html
 
 
 class ReportTemplateTest(unittest.TestCase):
@@ -190,12 +186,12 @@ process.stdout.write(JSON.stringify({
         card_count = html.count('class="report-card"')
         self.assertGreater(card_count, 0)
         self.assertLess(card_count, total)
-        self.assertLessEqual(card_count, INITIAL_PREVIEW_LIMIT)
+        self.assertLessEqual(card_count, 24)
 
         runtime = self._render_runtime_state(html)
         self.assertGreater(runtime["gridCardCount"], 0)
         self.assertLess(runtime["gridCardCount"], total)
-        self.assertLessEqual(runtime["gridCardCount"], VISIBLE_SLICE_LIMIT)
+        self.assertLessEqual(runtime["gridCardCount"], 48)
         self.assertEqual(runtime["spacerCount"], 1)
 
     def test_render_report_html_wires_toolbar_controls(self) -> None:
@@ -307,7 +303,8 @@ process.stdout.write(JSON.stringify({
 
         html = render_report_html(dataset)
 
-        self.assertNotIn("</ScRiPt><script>alert(1)</script>", html)
+        self.assertNotIn("/tmp/evil</ScRiPt>", html)
+        self.assertIn("/tmp/evil<\\/ScRiPt><script>alert(1)<\\/script>.gif", html)
 
 
 if __name__ == "__main__":
