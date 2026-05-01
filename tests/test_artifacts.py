@@ -154,6 +154,13 @@ class ArtifactsTest(unittest.TestCase):
 
 
 class ArtifactsReportShellTest(unittest.TestCase):
+    def _extract_report_data(self, html: str) -> dict:
+        marker = "window.__REPORT_DATA__ = "
+        marker_index = html.find(marker)
+        self.assertNotEqual(marker_index, -1)
+        payload, _ = json.JSONDecoder().raw_decode(html[marker_index + len(marker):])
+        return payload
+
     def test_save_html_report_outputs_report_shell_and_embedded_data(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             output_dir = Path(tmp_dir)
@@ -181,6 +188,30 @@ class ArtifactsReportShellTest(unittest.TestCase):
 
         self.assertNotIn('class="gif-card"', html)
         self.assertIn("report-hide-noise", html)
+
+    def test_save_html_report_large_dataset_keeps_embedded_data_and_preview_bounded(self) -> None:
+        primary_total = 700
+        secondary_total = 300
+        noise_total = 50
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir)
+            groups = {
+                10: [f"/tmp/primary-{index}.gif" for index in range(primary_total)],
+                2: [f"/tmp/secondary-{index}.gif" for index in range(secondary_total)],
+                -1: [f"/tmp/noise-{index}.gif" for index in range(noise_total)],
+            }
+            report_path = save_html_report(output_dir, groups, "stage2_action_clusters")
+
+            html = report_path.read_text(encoding="utf-8")
+
+        payload = self._extract_report_data(html)
+
+        self.assertEqual(payload["summary"]["total_items"], primary_total + secondary_total + noise_total)
+        self.assertEqual(len(payload["items"]), primary_total + secondary_total + noise_total)
+        self.assertEqual(payload["summary"]["largest_group_size"], primary_total)
+        self.assertTrue(any(item["is_noise"] for item in payload["items"]))
+        self.assertEqual(html.count('class="report-card"'), 12)
+        self.assertIn("report-grid", html)
 
 
 if __name__ == "__main__":

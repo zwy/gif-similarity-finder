@@ -12,6 +12,13 @@ from gif_similarity_finder.report_template import render_report_html
 class ReportTemplateTest(unittest.TestCase):
     maxDiff = None
 
+    def _extract_report_data(self, html: str) -> dict:
+        marker = "window.__REPORT_DATA__ = "
+        marker_index = html.find(marker)
+        self.assertNotEqual(marker_index, -1)
+        payload, _ = json.JSONDecoder().raw_decode(html[marker_index + len(marker):])
+        return payload
+
     def _render_runtime_state(
         self,
         html: str,
@@ -196,6 +203,31 @@ process.stdout.write(JSON.stringify({
         self.assertLess(runtime["gridCardCount"], total)
         self.assertLessEqual(runtime["gridCardCount"], 48)
         self.assertEqual(runtime["spacerCount"], 1)
+
+    def test_render_report_html_large_dataset_keeps_preview_and_runtime_slices_bounded(self) -> None:
+        primary_total = 700
+        secondary_total = 300
+        noise_total = 50
+        groups = {
+            10: [f"/tmp/primary-{index}.gif" for index in range(primary_total)],
+            2: [f"/tmp/secondary-{index}.gif" for index in range(secondary_total)],
+            -1: [f"/tmp/noise-{index}.gif" for index in range(noise_total)],
+        }
+        dataset = build_report_dataset(groups, stage="stage2_action_clusters")
+
+        html = render_report_html(dataset)
+        payload = self._extract_report_data(html)
+        runtime = self._render_runtime_state(html)
+
+        self.assertEqual(payload["summary"]["total_items"], primary_total + secondary_total + noise_total)
+        self.assertEqual(len(payload["items"]), primary_total + secondary_total + noise_total)
+        self.assertTrue(any(item["is_noise"] for item in payload["items"]))
+        self.assertEqual(html.count('class="report-card"'), 12)
+        self.assertEqual(runtime["gridCardCount"], 24)
+        self.assertEqual(runtime["spacerCount"], 1)
+        self.assertTrue(all(path.startswith("/tmp/primary-") for path in runtime["paths"]))
+        self.assertTrue(all("noise-" not in path for path in runtime["paths"]))
+        self.assertEqual(runtime["summaryText"], f"Total items: {primary_total + secondary_total + noise_total}")
 
     def test_render_report_html_wires_toolbar_controls(self) -> None:
         dataset = build_report_dataset({0: ["b.gif", "a.gif"], -1: ["noise.gif"]}, stage="stage1_same_source")
