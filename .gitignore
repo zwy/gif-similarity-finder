@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Output / cache
+output/
+*.npz
+*.index
+*.log
+
+# macOS
+.DS_Store

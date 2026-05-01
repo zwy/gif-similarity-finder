@@ -1,0 +1,24 @@
+# Core
+Pillow>=10.0.0
+numpy>=1.24.0
+tqdm>=4.65.0
+
+# Perceptual hashing (Stage 1)
+imagehash>=4.3.1
+
+# CLIP model (Stage 2)
+# Install PyTorch separately: https://pytorch.org/get-started/locally/
+# Then install openai-clip:
+# pip install git+https://github.com/openai/CLIP.git
+ftfy>=6.1.1
+regex>=2023.0.0
+
+# Vector search
+faiss-cpu>=1.7.4
+
+# Clustering
+scikit-learn>=1.3.0
+
+# Optional – UMAP visualization
+umap-learn>=0.5.3
+matplotlib>=3.7.0
