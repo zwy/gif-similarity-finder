@@ -1,0 +1,76 @@
+from dataclasses import asdict
+import json
+
+from gif_similarity_finder.report_data import ReportDataset
+
+
+def render_report_html(dataset: ReportDataset) -> str:
+    """Render a lightweight offline HTML shell for the report.
+
+    The output must embed the report data as JSON in window.__REPORT_DATA__ and
+    provide a minimal virtualized grid. Do not pre-render one card per item.
+    """
+    # Safely convert dataclasses (including slots=True) to primitives
+    payload = asdict(dataset)
+    payload_json = json.dumps(payload)
+
+    html = f"""
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>GIF Similarity Report</title>
+  <style>
+    /* Minimal styles for the offline shell */
+    #report-app {{ font-family: sans-serif; }}
+    #report-sidebar {{ width: 240px; float: left; border-right: 1px solid #ddd; padding: 8px; box-sizing: border-box; }}
+    #report-main {{ margin-left: 250px; padding: 8px; }}
+    #report-toolbar {{ margin-bottom: 8px; }}
+    #report-grid {{ display: block; position: relative; min-height: 200px; background: #f9f9f9; }}
+    .spacer {{ width: 100%; height: 100px; background: transparent; }}
+  </style>
+</head>
+<body>
+  <div id="report-app">
+    <aside id="report-sidebar">
+      <div id="report-search">Search</div>
+      <div id="report-sort">Sort</div>
+      <div id="report-hide-noise">Hide noise</div>
+    </aside>
+    <main id="report-main">
+      <div id="report-toolbar">Toolbar</div>
+      <section id="report-grid" aria-live="polite">
+        <!-- Virtualized grid placeholder — items are not pre-rendered here -->
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // Embedded report data for offline viewing
+    window.__REPORT_DATA__ = {payload_json};
+
+    // Lightweight virtualization renderer: creates a spacer instead of rendering
+    // every gif-card node. Real rendering will be implemented separately.
+    function renderVisibleRange() {{
+      var grid = document.getElementById('report-grid');
+      if (!grid) return;
+      // Create a single spacer element to represent the total scrollable area
+      var spacer = document.createElement('div');
+      spacer.className = 'spacer';
+      // height could be computed from data, but keep simple for the shell
+      spacer.style.height = Math.max(200, window.__REPORT_DATA__.summary.total_items * 2) + 'px';
+      grid.innerHTML = '';
+      grid.appendChild(spacer);
+    }}
+
+    // Auto-run renderer when loaded
+    if (document.readyState === 'loading') {{
+      document.addEventListener('DOMContentLoaded', renderVisibleRange);
+    }} else {{
+      renderVisibleRange();
+    }}
+  </script>
+</body>
+</html>
+"""
+    return html
