@@ -79,6 +79,77 @@ class ArtifactsTest(unittest.TestCase):
                 result = save_umap_visualization(Path(tmp_dir), embeddings, labels)
                 self.assertIsNone(result)
 
+    def test_save_umap_visualization_writes_file(self) -> None:
+        # Use lightweight stubs for optional heavy deps so this remains a unit test
+        embeddings = np.array([[0.1, 0.2], [0.2, 0.3], [0.3, 0.4], [0.4, 0.5]], dtype=np.float32)
+        labels = np.array([0, 1, 0, 1])
+
+        import types
+        import sys
+
+        # Fake umap module with deterministic UMAP.transform
+        fake_umap = types.ModuleType("umap")
+        class FakeUMAP:
+            def __init__(self, n_components, random_state, n_neighbors, min_dist):
+                pass
+            def fit_transform(self, embeddings_in):
+                n = embeddings_in.shape[0]
+                return np.arange(n * 2, dtype=np.float32).reshape(n, 2)
+        fake_umap.UMAP = FakeUMAP
+
+        # Fake matplotlib.cm.tab20 that returns a predictable color array
+        fake_cm = types.ModuleType("matplotlib.cm")
+        def tab20(x):
+            # return a color per input entry
+            return np.tile(np.linspace(0, 1, len(x)).reshape(-1, 1), (1, 4)).astype(np.float32)
+        fake_cm.tab20 = tab20
+
+        # Fake matplotlib.pyplot that writes a minimal file when savefig is called
+        fake_plt = types.ModuleType("matplotlib.pyplot")
+        class _Fig:
+            pass
+        class _Axis:
+            def scatter(self, *args, **kwargs):
+                pass
+        def _subplots(figsize=(14, 10)):
+            return (_Fig(), _Axis())
+        def _tight_layout():
+            pass
+        def _savefig(path, dpi=None, bbox_inches=None):
+            Path(path).write_bytes(b"PNGDATA")
+        def _close(fig):
+            pass
+        fake_plt.subplots = _subplots
+        fake_plt.tight_layout = _tight_layout
+        fake_plt.savefig = _savefig
+        fake_plt.close = _close
+
+        # Install fake modules into sys.modules (both package and submodules)
+        sys_modules_backup = {}
+        for name, mod in [("umap", fake_umap), ("matplotlib", types.ModuleType("matplotlib")), ("matplotlib.cm", fake_cm), ("matplotlib.pyplot", fake_plt)]:
+            sys_modules_backup[name] = sys.modules.get(name)
+            # If installing the top-level matplotlib package, ensure it exposes cm and pyplot
+            if name == "matplotlib":
+                matplotlib_pkg = types.ModuleType("matplotlib")
+                matplotlib_pkg.cm = fake_cm
+                matplotlib_pkg.pyplot = fake_plt
+                sys.modules["matplotlib"] = matplotlib_pkg
+            else:
+                sys.modules[name] = mod
+
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                out = save_umap_visualization(Path(tmp_dir), embeddings, labels)
+                self.assertIsNotNone(out)
+                self.assertTrue((Path(tmp_dir) / "umap_clusters.png").exists())
+        finally:
+            # Restore sys.modules
+            for name, prev in sys_modules_backup.items():
+                if prev is None:
+                    del sys.modules[name]
+                else:
+                    sys.modules[name] = prev
+
 
 if __name__ == "__main__":
     unittest.main()

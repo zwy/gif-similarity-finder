@@ -1,14 +1,10 @@
 import json
-import logging
 import time
 from pathlib import Path
 
 import numpy as np
 
 from .types import EmbeddingCacheData
-
-
-log = logging.getLogger(__name__)
 
 
 def save_group_json(path: Path, groups: dict[int, list[str]]) -> Path:
