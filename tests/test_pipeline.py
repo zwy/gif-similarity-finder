@@ -36,8 +36,16 @@ class CliTest(unittest.TestCase):
         ) as run_pipeline_mock:
             gif_similarity.main()
 
+        run_pipeline_mock.assert_called_once()
         config = run_pipeline_mock.call_args.args[0]
         self.assertEqual(config.input_dir, Path("input"))
+        self.assertEqual(config.output_dir, Path("output"))
+        self.assertEqual(config.frames, 8)
+        self.assertEqual(config.hash_threshold, 10)
+        self.assertEqual(config.min_cluster_size, 3)
+        self.assertEqual(config.batch_size, 32)
+        self.assertEqual(config.device, "auto")
+        self.assertFalse(config.skip_stage1)
         self.assertTrue(config.skip_stage2)
 
 class TypesTest(unittest.TestCase):
