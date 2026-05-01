@@ -14,7 +14,7 @@ class ReportDataTest(unittest.TestCase):
         dataset = build_report_dataset(groups, stage="stage1_same_source")
 
         self.assertEqual(dataset.summary.stage, "stage1_same_source")
-        self.assertEqual(dataset.summary.total_groups, 3)
+        self.assertEqual(dataset.summary.total_groups, 2)
         self.assertEqual(dataset.summary.grouped_items, 5)
         self.assertEqual(dataset.summary.noise_items, 1)
         self.assertEqual(dataset.summary.largest_group_size, 3)
@@ -27,6 +27,7 @@ class ReportDataTest(unittest.TestCase):
 
         self.assertTrue(all(item.is_noise for item in dataset.items))
         self.assertTrue(dataset.groups[0].is_noise)
+        self.assertEqual(dataset.summary.total_groups, 0)
 
     def test_build_report_dataset_excludes_noise_from_largest_group_size(self) -> None:
         groups = {

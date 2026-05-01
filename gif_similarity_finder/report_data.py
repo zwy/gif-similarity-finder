@@ -79,7 +79,7 @@ def build_report_dataset(groups: dict[int | str, list[str]], stage: str) -> Repo
 
     summary = ReportSummary(
         stage=stage,
-        total_groups=len(group_rows),
+        total_groups=sum(1 for group in group_rows if not group.is_noise),
         total_items=len(item_rows),
         grouped_items=grouped_items,
         noise_items=noise_items,
