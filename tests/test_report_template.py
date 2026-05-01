@@ -19,12 +19,18 @@ class ReportTemplateTest(unittest.TestCase):
         self.assertIn('<input id="report-hide-noise" type="checkbox"', html)
 
     def test_render_report_html_does_not_pre_render_every_item_card(self) -> None:
-        groups = {0: [f"/tmp/{index}.gif" for index in range(100)]}
+        # Large dataset should not eagerly pre-render one card per item in the
+        # generated HTML, but should still render a small visible slice.
+        total = 100
+        groups = {0: [f"/tmp/{index}.gif" for index in range(total)]}
         dataset = build_report_dataset(groups, stage="stage2_action_clusters")
 
         html = render_report_html(dataset)
 
-        self.assertNotIn('class="gif-card"', html)
+        # Ensure we have some preview cards but far fewer than total items
+        card_count = html.count('class="report-card"')
+        self.assertGreater(card_count, 0)
+        self.assertLess(card_count, total)
         self.assertIn("renderVisibleRange", html)
         self.assertIn("filter((item) => !item.is_noise)", html)
 
@@ -53,6 +59,26 @@ class ReportTemplateTest(unittest.TestCase):
 
         self.assertIn("&lt;b&amp;&quot;&#x27; .gif", html)
         self.assertNotIn('class="report-card">a<b&"\' .gif', html)
+
+    def test_render_report_html_escapes_preview_paths_in_initial_slice(self) -> None:
+        # The initial visible slice should not expose raw dangerous sequences
+        dataset = build_report_dataset({0: ["evil</script>.gif"]}, stage="stage1_same_source")
+
+        html = render_report_html(dataset)
+
+        # Path with script-closing fragments must not appear raw in the HTML
+        self.assertNotIn("evil</script>.gif", html)
+
+    def test_render_report_html_stage_specific_labels_are_embedded(self) -> None:
+        ds1 = build_report_dataset({0: ["a.gif"]}, stage="stage1_same_source")
+        ds2 = build_report_dataset({0: ["a.gif"]}, stage="stage2_action_clusters")
+
+        html1 = render_report_html(ds1)
+        html2 = render_report_html(ds2)
+
+        self.assertIn("stage1_same_source", html1)
+        self.assertIn("stage2_action_clusters", html2)
+        self.assertNotEqual(html1, html2)
 
     def test_render_report_html_escapes_script_closing_sequences_in_payload(self) -> None:
         dataset = build_report_dataset(
