@@ -46,6 +46,14 @@ class ReportTemplateTest(unittest.TestCase):
         self.assertIn('class="report-card"', html)
         self.assertIn("a.gif", html)
 
+    def test_render_report_html_escapes_preview_card_content(self) -> None:
+        dataset = build_report_dataset({0: ['a<b&"\' .gif']}, stage="stage1_same_source")
+
+        html = render_report_html(dataset)
+
+        self.assertIn("&lt;b&amp;&quot;&#x27; .gif", html)
+        self.assertNotIn('class="report-card">a<b&"\' .gif', html)
+
     def test_render_report_html_escapes_script_closing_sequences_in_payload(self) -> None:
         dataset = build_report_dataset(
             {0: ["/tmp/evil</script><script>alert(1)</script>.gif"]},

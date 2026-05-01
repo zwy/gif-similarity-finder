@@ -1,4 +1,5 @@
 from dataclasses import asdict
+from html import escape
 import json
 
 from gif_similarity_finder.report_data import ReportDataset
@@ -17,8 +18,8 @@ def render_report_html(dataset: ReportDataset) -> str:
     initial_cards = "".join(
         (
             '<article class="report-card">'
-            f'<div class="report-card-name">{item["name"]}</div>'
-            f'<div class="report-card-meta">Group {item["group_id"]} · {item["group_size"]} items</div>'
+            f'<div class="report-card-name">{escape(item["name"])}</div>'
+            f'<div class="report-card-meta">Group {escape(item["group_id"])} · {item["group_size"]} items</div>'
             "</article>"
         )
         for item in initial_items
