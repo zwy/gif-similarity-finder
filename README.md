@@ -129,21 +129,21 @@ output/
 
 ---
 
-## 技术架构
+## Technical Architecture
 
-```
-GIF 文件夹
-    │
-    ├─ Stage 1: 感知哈希（Pillow + imagehash）
-    │       ↓
-    │   Union-Find 分组 → 同源 GIF 组
-    │
-    └─ Stage 2: CLIP 语义聚类
-            │
-            ├─ 均匀采帧（Pillow ImageSequence）
-            ├─ CLIP ViT-B/32 多帧均值 embedding
-            ├─ FAISS IVF 索引构建
-            └─ HDBSCAN 自动聚类 → 动作/场景 GIF 组
+```text
+gif_similarity.py
+    -> CLI argument parsing
+    -> PipelineConfig construction
+    -> run_pipeline(...)
+
+gif_similarity_finder/
+    io.py          # GIF collection and frame sampling
+    stage1.py      # pHash-based same-source grouping
+    stage2.py      # CLIP embedding extraction and clustering
+    artifacts.py   # cache, json, report, index, visualization outputs
+    pipeline.py    # orchestration
+    types.py       # shared result models
 ```
 
 ---
