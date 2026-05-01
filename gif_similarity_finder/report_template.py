@@ -12,7 +12,7 @@ def render_report_html(dataset: ReportDataset) -> str:
     """
     # Safely convert dataclasses (including slots=True) to primitives
     payload = asdict(dataset)
-    payload_json = json.dumps(payload)
+    payload_json = json.dumps(payload).replace("</", "<\\/")
 
     html = f"""
 <!doctype html>
