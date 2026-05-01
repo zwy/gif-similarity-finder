@@ -4,6 +4,9 @@ import json
 
 from gif_similarity_finder.report_data import ReportDataset
 
+INITIAL_PREVIEW_LIMIT = 12
+VISIBLE_SLICE_LIMIT = 24
+
 
 def render_report_html(dataset: ReportDataset) -> str:
     """Render a lightweight offline HTML shell for the report.
@@ -19,7 +22,7 @@ def render_report_html(dataset: ReportDataset) -> str:
         "stage2_action_clusters": "Action clusters",
     }
     stage_label = stage_labels.get(dataset.summary.stage, dataset.summary.stage)
-    initial_items = payload["items"][:12]
+    initial_items = payload["items"][:INITIAL_PREVIEW_LIMIT]
     initial_cards = "".join(
         (
             '<article class="report-card">'
@@ -104,7 +107,9 @@ def render_report_html(dataset: ReportDataset) -> str:
       // height could be computed from data, but keep simple for the shell
       spacer.style.height = Math.max(200, initialItems.length * 2) + 'px';
       grid.innerHTML = '';
-      initialItems.slice(0, 24).forEach(function(item) {{
+      const INITIAL_PREVIEW_LIMIT = {INITIAL_PREVIEW_LIMIT};
+      const VISIBLE_SLICE_LIMIT = {VISIBLE_SLICE_LIMIT};
+      initialItems.slice(0, VISIBLE_SLICE_LIMIT).forEach(function(item) {{
         var card = document.createElement('article');
         card.className = 'report-card';
         var name = document.createElement('div');

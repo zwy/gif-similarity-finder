@@ -30,8 +30,11 @@ class ReportTemplateTest(unittest.TestCase):
         # Ensure we have a bounded preview slice rather than nearly all items.
         card_count = html.count('class="report-card"')
         self.assertGreater(card_count, 0)
-        self.assertEqual(card_count, 12)
+        self.assertLess(card_count, total)
         self.assertIn("renderVisibleRange", html)
+        self.assertIn("const INITIAL_PREVIEW_LIMIT = 12", html)
+        self.assertIn("const VISIBLE_SLICE_LIMIT = 24", html)
+        self.assertIn("initialItems.slice(0, VISIBLE_SLICE_LIMIT)", html)
         self.assertIn("filter((item) => !item.is_noise)", html)
 
     def test_render_report_html_wires_toolbar_controls(self) -> None:
