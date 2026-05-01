@@ -38,6 +38,14 @@ class ReportTemplateTest(unittest.TestCase):
         self.assertIn("document.getElementById('report-hide-noise').addEventListener", html)
         self.assertIn("if (hideNoise)", html)
 
+    def test_render_report_html_renders_a_visible_preview_slice(self) -> None:
+        dataset = build_report_dataset({0: ["a.gif", "b.gif"]}, stage="stage1_same_source")
+
+        html = render_report_html(dataset)
+
+        self.assertIn('class="report-card"', html)
+        self.assertIn("a.gif", html)
+
     def test_render_report_html_escapes_script_closing_sequences_in_payload(self) -> None:
         dataset = build_report_dataset(
             {0: ["/tmp/evil</script><script>alert(1)</script>.gif"]},

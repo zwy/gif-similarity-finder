@@ -13,6 +13,16 @@ def render_report_html(dataset: ReportDataset) -> str:
     # Safely convert dataclasses (including slots=True) to primitives
     payload = asdict(dataset)
     payload_json = json.dumps(payload).replace("</", "<\\/")
+    initial_items = payload["items"][:12]
+    initial_cards = "".join(
+        (
+            '<article class="report-card">'
+            f'<div class="report-card-name">{item["name"]}</div>'
+            f'<div class="report-card-meta">Group {item["group_id"]} · {item["group_size"]} items</div>'
+            "</article>"
+        )
+        for item in initial_items
+    )
 
     html = f"""
 <!doctype html>
@@ -26,8 +36,11 @@ def render_report_html(dataset: ReportDataset) -> str:
     #report-sidebar {{ width: 240px; float: left; border-right: 1px solid #ddd; padding: 8px; box-sizing: border-box; }}
     #report-main {{ margin-left: 250px; padding: 8px; }}
     #report-toolbar {{ margin-bottom: 8px; }}
-    #report-grid {{ display: block; position: relative; min-height: 200px; background: #f9f9f9; }}
+    #report-grid {{ display: grid; gap: 8px; position: relative; min-height: 200px; background: #f9f9f9; }}
     .spacer {{ width: 100%; height: 100px; background: transparent; }}
+    .report-card {{ border: 1px solid #ddd; background: #fff; padding: 8px; }}
+    .report-card-name {{ font-weight: 600; }}
+    .report-card-meta {{ color: #666; font-size: 12px; }}
   </style>
 </head>
 <body>
@@ -47,6 +60,7 @@ def render_report_html(dataset: ReportDataset) -> str:
       <div id="report-toolbar">Toolbar</div>
       <section id="report-grid" aria-live="polite">
         <!-- Virtualized grid ready -->
+        {initial_cards}
       </section>
     </main>
   </div>
@@ -81,6 +95,19 @@ def render_report_html(dataset: ReportDataset) -> str:
       // height could be computed from data, but keep simple for the shell
       spacer.style.height = Math.max(200, initialItems.length * 2) + 'px';
       grid.innerHTML = '';
+      initialItems.slice(0, 24).forEach(function(item) {{
+        var card = document.createElement('article');
+        card.className = 'report-card';
+        var name = document.createElement('div');
+        name.className = 'report-card-name';
+        name.textContent = item.name;
+        var meta = document.createElement('div');
+        meta.className = 'report-card-meta';
+        meta.textContent = 'Group ' + item.group_id + ' · ' + item.group_size + ' items';
+        card.appendChild(name);
+        card.appendChild(meta);
+        grid.appendChild(card);
+      }});
       grid.appendChild(spacer);
     }}
 
