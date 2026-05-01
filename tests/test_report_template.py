@@ -27,10 +27,10 @@ class ReportTemplateTest(unittest.TestCase):
 
         html = render_report_html(dataset)
 
-        # Ensure we have some preview cards but far fewer than total items
+        # Ensure we have a bounded preview slice rather than nearly all items.
         card_count = html.count('class="report-card"')
         self.assertGreater(card_count, 0)
-        self.assertLess(card_count, total)
+        self.assertEqual(card_count, 12)
         self.assertIn("renderVisibleRange", html)
         self.assertIn("filter((item) => !item.is_noise)", html)
 
@@ -61,13 +61,13 @@ class ReportTemplateTest(unittest.TestCase):
         self.assertNotIn('class="report-card">a<b&"\' .gif', html)
 
     def test_render_report_html_escapes_preview_paths_in_initial_slice(self) -> None:
-        # The initial visible slice should not expose raw dangerous sequences
-        dataset = build_report_dataset({0: ["evil</script>.gif"]}, stage="stage1_same_source")
+        # The initial visible slice should expose a safe, escaped preview path.
+        dataset = build_report_dataset({0: ["/tmp/evil</script>.gif"]}, stage="stage1_same_source")
 
         html = render_report_html(dataset)
 
-        # Path with script-closing fragments must not appear raw in the HTML
-        self.assertNotIn("evil</script>.gif", html)
+        self.assertIn("/tmp/evil&lt;/script&gt;.gif", html)
+        self.assertNotIn("/tmp/evil</script>.gif", html)
 
     def test_render_report_html_stage_specific_labels_are_embedded(self) -> None:
         ds1 = build_report_dataset({0: ["a.gif"]}, stage="stage1_same_source")
@@ -76,9 +76,10 @@ class ReportTemplateTest(unittest.TestCase):
         html1 = render_report_html(ds1)
         html2 = render_report_html(ds2)
 
-        self.assertIn("stage1_same_source", html1)
-        self.assertIn("stage2_action_clusters", html2)
-        self.assertNotEqual(html1, html2)
+        self.assertIn("Same-source groups", html1)
+        self.assertIn("Action clusters", html2)
+        self.assertNotIn("Action clusters", html1)
+        self.assertNotIn("Same-source groups", html2)
 
     def test_render_report_html_escapes_script_closing_sequences_in_payload(self) -> None:
         dataset = build_report_dataset(

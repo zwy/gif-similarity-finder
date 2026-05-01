@@ -14,12 +14,18 @@ def render_report_html(dataset: ReportDataset) -> str:
     # Safely convert dataclasses (including slots=True) to primitives
     payload = asdict(dataset)
     payload_json = json.dumps(payload).replace("</", "<\\/")
+    stage_labels = {
+        "stage1_same_source": "Same-source groups",
+        "stage2_action_clusters": "Action clusters",
+    }
+    stage_label = stage_labels.get(dataset.summary.stage, dataset.summary.stage)
     initial_items = payload["items"][:12]
     initial_cards = "".join(
         (
             '<article class="report-card">'
             f'<div class="report-card-name">{escape(item["name"])}</div>'
             f'<div class="report-card-meta">Group {escape(item["group_id"])} · {item["group_size"]} items</div>'
+            f'<div class="report-card-path">{escape(item["path"])}</div>'
             "</article>"
         )
         for item in initial_items
@@ -42,12 +48,14 @@ def render_report_html(dataset: ReportDataset) -> str:
     .report-card {{ border: 1px solid #ddd; background: #fff; padding: 8px; }}
     .report-card-name {{ font-weight: 600; }}
     .report-card-meta {{ color: #666; font-size: 12px; }}
+    .report-card-path {{ color: #666; font-size: 12px; word-break: break-all; }}
   </style>
 </head>
 <body>
   <div id="report-app">
     <aside id="report-sidebar">
       <h1 id="report-title">GIF Similarity Report</h1>
+      <p id="report-stage-label">{escape(stage_label)}</p>
       <p id="report-stage"></p>
       <p id="report-summary"></p>
       <input id="report-search" placeholder="Search GIFs">
@@ -105,8 +113,12 @@ def render_report_html(dataset: ReportDataset) -> str:
         var meta = document.createElement('div');
         meta.className = 'report-card-meta';
         meta.textContent = 'Group ' + item.group_id + ' · ' + item.group_size + ' items';
+        var path = document.createElement('div');
+        path.className = 'report-card-path';
+        path.textContent = item.path;
         card.appendChild(name);
         card.appendChild(meta);
+        card.appendChild(path);
         grid.appendChild(card);
       }});
       grid.appendChild(spacer);
