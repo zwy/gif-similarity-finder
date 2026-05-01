@@ -34,6 +34,7 @@ class ReportTemplateTest(unittest.TestCase):
         self.assertIn("const INITIAL_PREVIEW_LIMIT = 12", html)
         self.assertIn("const VISIBLE_SLICE_LIMIT = 24", html)
         self.assertIn("initialItems.slice(0, VISIBLE_SLICE_LIMIT)", html)
+        self.assertNotIn("initialItems.forEach(function(item)", html)
         self.assertIn("filter((item) => !item.is_noise)", html)
 
     def test_render_report_html_wires_toolbar_controls(self) -> None:
@@ -86,6 +87,9 @@ class ReportTemplateTest(unittest.TestCase):
         self.assertIn('data-stage-key="stage2_action_clusters"', html2)
         self.assertIn("Source group 0", html1)
         self.assertIn("Cluster 0", html2)
+        self.assertIn('const CARD_GROUP_LABEL = "Source group"', html1)
+        self.assertIn('const CARD_GROUP_LABEL = "Cluster"', html2)
+        self.assertIn("CARD_GROUP_LABEL + ' ' + item.group_id", html1)
         self.assertNotIn("Action clusters", html1)
         self.assertNotIn("Same-source groups", html2)
 
