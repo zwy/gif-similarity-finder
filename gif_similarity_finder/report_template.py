@@ -33,9 +33,12 @@ def render_report_html(dataset: ReportDataset) -> str:
 <body>
   <div id="report-app">
     <aside id="report-sidebar">
-      <div id="report-search">Search</div>
-      <div id="report-sort">Sort</div>
-      <div id="report-hide-noise">Hide noise</div>
+      <input id="report-search" placeholder="Search GIFs">
+      <select id="report-sort">
+        <option value="group-size-desc">Group size</option>
+        <option value="name-asc">Name</option>
+      </select>
+      <label><input id="report-hide-noise" type="checkbox"> Hide noise</label>
     </aside>
     <main id="report-main">
       <div id="report-toolbar">Toolbar</div>
@@ -54,11 +57,12 @@ def render_report_html(dataset: ReportDataset) -> str:
     function renderVisibleRange() {{
       var grid = document.getElementById('report-grid');
       if (!grid) return;
+      var initialItems = window.__REPORT_DATA__.items.filter((item) => !item.is_noise);
       // Create a single spacer element to represent the total scrollable area
       var spacer = document.createElement('div');
       spacer.className = 'spacer';
       // height could be computed from data, but keep simple for the shell
-      spacer.style.height = Math.max(200, window.__REPORT_DATA__.summary.total_items * 2) + 'px';
+      spacer.style.height = Math.max(200, initialItems.length * 2) + 'px';
       grid.innerHTML = '';
       grid.appendChild(spacer);
     }}
