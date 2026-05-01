@@ -211,9 +211,13 @@ class ArtifactsReportShellTest(unittest.TestCase):
             html = report_path.read_text(encoding="utf-8")
 
         payload = self._extract_report_data(html)
+        smaller_payload = self._extract_report_data(smaller_html)
         preview_count = html.count('class="report-card"')
         smaller_preview_count = smaller_html.count('class="report-card"')
 
+        self.assertEqual(smaller_payload["summary"]["total_items"], len(smaller_payload["items"]))
+        self.assertGreater(smaller_preview_count, 0)
+        self.assertLess(smaller_preview_count, smaller_payload["summary"]["total_items"])
         self.assertEqual(payload["summary"]["total_items"], primary_total + secondary_total + noise_total)
         self.assertEqual(len(payload["items"]), primary_total + secondary_total + noise_total)
         self.assertEqual(payload["summary"]["largest_group_size"], primary_total)
