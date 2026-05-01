@@ -33,6 +33,9 @@ def render_report_html(dataset: ReportDataset) -> str:
 <body>
   <div id="report-app">
     <aside id="report-sidebar">
+      <h1 id="report-title">GIF Similarity Report</h1>
+      <p id="report-stage"></p>
+      <p id="report-summary"></p>
       <input id="report-search" placeholder="Search GIFs">
       <select id="report-sort">
         <option value="group-size-desc">Group size</option>
@@ -84,6 +87,9 @@ def render_report_html(dataset: ReportDataset) -> str:
     document.getElementById('report-search').addEventListener('input', renderVisibleRange);
     document.getElementById('report-sort').addEventListener('change', renderVisibleRange);
     document.getElementById('report-hide-noise').addEventListener('change', renderVisibleRange);
+    document.getElementById('report-stage').textContent = window.__REPORT_DATA__.summary.stage;
+    document.getElementById('report-summary').textContent =
+      'Total items: ' + window.__REPORT_DATA__.summary.total_items;
 
     // Auto-run renderer when loaded
     if (document.readyState === 'loading') {{

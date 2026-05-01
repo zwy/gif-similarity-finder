@@ -47,6 +47,7 @@ class ArtifactsTest(unittest.TestCase):
             # while that directory is active; do the assertion inside the
             # TemporaryDirectory scope.
             self.assertTrue(report_path.exists())
+            self.assertEqual(report_path.name, "report_stage1_same_source.html")
 
     def test_save_hnsw_index_creates_file(self) -> None:
         try:
@@ -167,6 +168,8 @@ class ArtifactsReportShellTest(unittest.TestCase):
         self.assertIn("window.__REPORT_DATA__", html)
         self.assertIn("report-grid", html)
         self.assertIn("Virtualized grid ready", html)
+        self.assertIn("stage1_same_source", html)
+        self.assertIn("Total items", html)
 
     def test_save_html_report_does_not_pre_render_all_cards(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
