@@ -8,6 +8,10 @@ INITIAL_PREVIEW_LIMIT = 12
 VISIBLE_SLICE_LIMIT = 24
 
 
+def _json_inline_script_value(value: object) -> str:
+    return json.dumps(value).replace("</", "<\\/")
+
+
 def render_report_html(dataset: ReportDataset) -> str:
     """Render a lightweight offline HTML shell for the report.
 
@@ -16,7 +20,7 @@ def render_report_html(dataset: ReportDataset) -> str:
     """
     # Safely convert dataclasses (including slots=True) to primitives
     payload = asdict(dataset)
-    payload_json = json.dumps(payload).replace("</", "<\\/")
+    payload_json = _json_inline_script_value(payload)
     stage_labels = {
         "stage1_same_source": "Same-source groups",
         "stage2_action_clusters": "Action clusters",
@@ -85,8 +89,8 @@ def render_report_html(dataset: ReportDataset) -> str:
   <script>
     // Embedded report data for offline viewing
     window.__REPORT_DATA__ = {payload_json};
-    const STAGE_LABEL = {json.dumps(stage_label)};
-    const CARD_GROUP_LABEL = {json.dumps(card_group_label)};
+    const STAGE_LABEL = {_json_inline_script_value(stage_label)};
+    const CARD_GROUP_LABEL = {_json_inline_script_value(card_group_label)};
 
     // Lightweight virtualization renderer: creates a spacer instead of rendering
     // every gif-card node. Real rendering will be implemented separately.

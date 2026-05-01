@@ -358,6 +358,21 @@ process.stdout.write(JSON.stringify({
         self.assertNotIn("/tmp/evil</ScRiPt>", html)
         self.assertIn("/tmp/evil<\\/ScRiPt><script>alert(1)<\\/script>.gif", html)
 
+    def test_render_report_html_escapes_unknown_stage_labels_in_inline_script(self) -> None:
+        dataset = build_report_dataset(
+            {0: ["safe.gif"]},
+            stage="</script><script>alert(1)</script>",
+        )
+
+        html = render_report_html(dataset)
+
+        self.assertIn(
+            'data-stage-key="&lt;/script&gt;&lt;script&gt;alert(1)&lt;/script&gt;"',
+            html,
+        )
+        self.assertIn('const STAGE_LABEL = "<\\/script><script>alert(1)<\\/script>";', html)
+        self.assertNotIn('const STAGE_LABEL = "</script><script>alert(1)</script>";', html)
+
 
 if __name__ == "__main__":
     unittest.main()
