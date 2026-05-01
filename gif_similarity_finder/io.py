@@ -24,8 +24,8 @@ def collect_gifs(folder: str | Path) -> list[Path]:
 
 def sample_frames(gif_path: Path, n_frames: int = 8) -> list[Image.Image]:
     try:
-        gif = Image.open(gif_path)
-        frames = [frame.copy().convert("RGB") for frame in ImageSequence.Iterator(gif)]
+        with Image.open(gif_path) as gif:
+            frames = [frame.copy().convert("RGB") for frame in ImageSequence.Iterator(gif)]
         if not frames:
             return []
         indices = np.linspace(0, len(frames) - 1, min(n_frames, len(frames)), dtype=int)
