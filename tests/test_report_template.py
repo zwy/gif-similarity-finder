@@ -49,6 +49,16 @@ class ReportTemplateTest(unittest.TestCase):
         self.assertIn("window.__REPORT_DATA__", html)
         self.assertNotIn("</script><script>alert(1)</script>", html)
 
+    def test_render_report_html_escapes_mixed_case_script_closing_sequences_in_payload(self) -> None:
+        dataset = build_report_dataset(
+            {0: ["/tmp/evil</ScRiPt><script>alert(1)</script>.gif"]},
+            stage="stage2_action_clusters",
+        )
+
+        html = render_report_html(dataset)
+
+        self.assertNotIn("</ScRiPt><script>alert(1)</script>", html)
+
 
 if __name__ == "__main__":
     unittest.main()
