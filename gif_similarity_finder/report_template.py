@@ -57,7 +57,21 @@ def render_report_html(dataset: ReportDataset) -> str:
     function renderVisibleRange() {{
       var grid = document.getElementById('report-grid');
       if (!grid) return;
-      var initialItems = window.__REPORT_DATA__.items.filter((item) => !item.is_noise);
+      var searchValue = document.getElementById('report-search').value.trim().toLowerCase();
+      var sortValue = document.getElementById('report-sort').value;
+      var hideNoise = document.getElementById('report-hide-noise').checked;
+      var initialItems = window.__REPORT_DATA__.items.slice();
+      if (hideNoise) {{
+        initialItems = initialItems.filter((item) => !item.is_noise);
+      }}
+      if (searchValue) {{
+        initialItems = initialItems.filter((item) => item.name.toLowerCase().includes(searchValue));
+      }}
+      if (sortValue === 'name-asc') {{
+        initialItems.sort((left, right) => left.name.localeCompare(right.name));
+      }} else {{
+        initialItems.sort((left, right) => right.group_size - left.group_size);
+      }}
       // Create a single spacer element to represent the total scrollable area
       var spacer = document.createElement('div');
       spacer.className = 'spacer';
@@ -66,6 +80,10 @@ def render_report_html(dataset: ReportDataset) -> str:
       grid.innerHTML = '';
       grid.appendChild(spacer);
     }}
+
+    document.getElementById('report-search').addEventListener('input', renderVisibleRange);
+    document.getElementById('report-sort').addEventListener('change', renderVisibleRange);
+    document.getElementById('report-hide-noise').addEventListener('change', renderVisibleRange);
 
     // Auto-run renderer when loaded
     if (document.readyState === 'loading') {{

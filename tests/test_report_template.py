@@ -28,6 +28,16 @@ class ReportTemplateTest(unittest.TestCase):
         self.assertIn("renderVisibleRange", html)
         self.assertIn("filter((item) => !item.is_noise)", html)
 
+    def test_render_report_html_wires_toolbar_controls(self) -> None:
+        dataset = build_report_dataset({0: ["a.gif"], -1: ["noise.gif"]}, stage="stage1_same_source")
+
+        html = render_report_html(dataset)
+
+        self.assertIn("document.getElementById('report-search').addEventListener", html)
+        self.assertIn("document.getElementById('report-sort').addEventListener", html)
+        self.assertIn("document.getElementById('report-hide-noise').addEventListener", html)
+        self.assertIn("if (hideNoise)", html)
+
     def test_render_report_html_escapes_script_closing_sequences_in_payload(self) -> None:
         dataset = build_report_dataset(
             {0: ["/tmp/evil</script><script>alert(1)</script>.gif"]},
