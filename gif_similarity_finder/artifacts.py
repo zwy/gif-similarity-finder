@@ -55,16 +55,11 @@ def save_html_report(output_dir: Path, groups: dict[int, list[str]], stage: str)
     except Exception:
         log.exception("Failed to write html report to %s", html_path)
 
-    # Also write a persistent copy in the current working directory so the
-    # returned path remains valid even if the provided output directory is
-    # ephemeral (e.g., a TemporaryDirectory context that is removed on exit).
-    persistent_path = Path.cwd() / html_path.name
-    try:
-        persistent_path.write_text("\n".join(lines), encoding="utf-8")
-        return persistent_path
-    except Exception:
-        log.exception("Failed to write persistent html report to %s", persistent_path)
-        return html_path
+    # Return the report path inside the provided output directory. Do not
+    # create any persistent fallback copies — the caller controls output
+    # directory lifetime (e.g., TemporaryDirectory). This keeps behavior
+    # aligned with the Task 5 spec.
+    return html_path
 
 
 def save_hnsw_index(path: Path, embeddings: np.ndarray) -> Path:

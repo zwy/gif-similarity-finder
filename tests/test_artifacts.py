@@ -41,7 +41,10 @@ class ArtifactsTest(unittest.TestCase):
             output_dir = Path(tmp_dir)
             report_path = save_html_report(output_dir, {0: ["a.gif"]}, "stage1_same_source")
 
-        self.assertTrue(report_path.exists())
+            # The report should exist inside the provided output directory
+            # while that directory is active; do the assertion inside the
+            # TemporaryDirectory scope.
+            self.assertTrue(report_path.exists())
 
 
 if __name__ == "__main__":
