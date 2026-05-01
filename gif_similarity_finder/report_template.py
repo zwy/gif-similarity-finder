@@ -58,7 +58,7 @@ def render_report_html(dataset: ReportDataset) -> str:
   <div id="report-app">
     <aside id="report-sidebar">
       <h1 id="report-title">GIF Similarity Report</h1>
-      <p id="report-stage-label">{escape(stage_label)}</p>
+      <p id="report-stage-label" data-stage-key="{escape(dataset.summary.stage)}">{escape(stage_label)}</p>
       <p id="report-stage"></p>
       <p id="report-summary"></p>
       <input id="report-search" placeholder="Search GIFs">

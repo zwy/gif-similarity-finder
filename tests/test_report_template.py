@@ -49,6 +49,8 @@ class ReportTemplateTest(unittest.TestCase):
         self.assertIn("document.getElementById('report-sort').addEventListener", html)
         self.assertIn("document.getElementById('report-hide-noise').addEventListener", html)
         self.assertIn("if (hideNoise)", html)
+        self.assertIn("sortValue === 'name-asc'", html)
+        self.assertIn("right.group_size - left.group_size", html)
 
     def test_render_report_html_renders_a_visible_preview_slice(self) -> None:
         dataset = build_report_dataset({0: ["a.gif", "b.gif"]}, stage="stage1_same_source")
@@ -84,6 +86,8 @@ class ReportTemplateTest(unittest.TestCase):
 
         self.assertIn("Same-source groups", html1)
         self.assertIn("Action clusters", html2)
+        self.assertIn('data-stage-key="stage1_same_source"', html1)
+        self.assertIn('data-stage-key="stage2_action_clusters"', html2)
         self.assertNotIn("Action clusters", html1)
         self.assertNotIn("Same-source groups", html2)
 
