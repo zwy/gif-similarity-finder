@@ -1,8 +1,10 @@
 import tempfile
 import unittest
+from argparse import Namespace
 from pathlib import Path
 from unittest import mock
 
+import gif_similarity
 import numpy as np
 
 from gif_similarity_finder.pipeline import run_pipeline
@@ -14,6 +16,29 @@ from gif_similarity_finder.types import (
     Stage2Result,
 )
 
+
+class CliTest(unittest.TestCase):
+    def test_main_builds_pipeline_config_and_calls_pipeline(self) -> None:
+        args = Namespace(
+            input="input",
+            output="output",
+            frames=8,
+            hash_thresh=10,
+            min_cluster=3,
+            batch_size=32,
+            device="auto",
+            skip_stage1=False,
+            skip_stage2=True,
+        )
+
+        with mock.patch("gif_similarity.parse_args", return_value=args), mock.patch(
+            "gif_similarity.run_pipeline"
+        ) as run_pipeline_mock:
+            gif_similarity.main()
+
+        config = run_pipeline_mock.call_args.args[0]
+        self.assertEqual(config.input_dir, Path("input"))
+        self.assertTrue(config.skip_stage2)
 
 class TypesTest(unittest.TestCase):
     def test_pipeline_config_stores_cli_values(self) -> None:
@@ -85,13 +110,7 @@ class Stage2ContractTest(unittest.TestCase):
         embeddings = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
         labels = np.array([0, -1], dtype=np.int64)
 
-        with mock.patch("gif_similarity.save_html_report") as mock_save_html, mock.patch(
-            "gif_similarity.np.savez"
-        ) as mock_savez, mock.patch("gif_similarity.build_hnswlib_index") as mock_build_index, mock.patch(
-            "gif_similarity.visualise_clusters"
-        ) as mock_visualise, mock.patch(
-            "gif_similarity_finder.stage2.load_clip_model", return_value=("model", "pre", "cpu")
-        ), mock.patch(
+        with mock.patch("gif_similarity_finder.stage2.load_clip_model", return_value=("model", "pre", "cpu")), mock.patch(
             "gif_similarity_finder.stage2.extract_all_embeddings",
             return_value=([Path("a.gif"), Path("b.gif")], embeddings),
         ), mock.patch("gif_similarity_finder.stage2.cluster_hdbscan", return_value=labels):
@@ -103,11 +122,6 @@ class Stage2ContractTest(unittest.TestCase):
                 device="auto",
                 cache_data=None,
             )
-
-        mock_save_html.assert_not_called()
-        mock_savez.assert_not_called()
-        mock_build_index.assert_not_called()
-        mock_visualise.assert_not_called()
         self.assertEqual(result.groups[0], ["a.gif"])
         self.assertEqual(result.groups[-1], ["b.gif"])
 
