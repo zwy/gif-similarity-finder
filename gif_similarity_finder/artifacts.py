@@ -12,11 +12,18 @@ log = logging.getLogger(__name__)
 
 
 def save_group_json(path: Path, groups: dict[int, list[str]]) -> Path:
-    path.write_text(json.dumps({str(key): value for key, value in groups.items()}, indent=2, ensure_ascii=False), encoding="utf-8")
+    # Ensure parent directory exists before writing
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({str(key): value for key, value in groups.items()}, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
     return path
 
 
 def save_embedding_cache(path: Path, cache_data: EmbeddingCacheData) -> Path:
+    # Ensure parent directory exists before writing
+    path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(path, paths=np.array([str(item) for item in cache_data.paths]), embeddings=cache_data.embeddings)
     return path
 
@@ -24,11 +31,11 @@ def save_embedding_cache(path: Path, cache_data: EmbeddingCacheData) -> Path:
 def load_embedding_cache(path: Path) -> EmbeddingCacheData | None:
     if not path.exists():
         return None
-    payload = np.load(path, allow_pickle=True)
-    return EmbeddingCacheData(
-        paths=[Path(str(item)) for item in payload["paths"]],
-        embeddings=payload["embeddings"],
-    )
+    # Use a context manager to ensure the NpzFile is closed promptly
+    with np.load(path, allow_pickle=True) as payload:
+        paths = [Path(str(item)) for item in payload["paths"]]
+        embeddings = payload["embeddings"].copy()
+    return EmbeddingCacheData(paths=paths, embeddings=embeddings)
 
 
 def save_html_report(output_dir: Path, groups: dict[int, list[str]], stage: str) -> Path:
@@ -48,12 +55,11 @@ def save_html_report(output_dir: Path, groups: dict[int, list[str]], stage: str)
             lines.append(f"<div>{name}</div>")
     lines.append("</body></html>")
 
-    # Ensure output directory exists and write the primary report
-    try:
-        html_path.parent.mkdir(parents=True, exist_ok=True)
-        html_path.write_text("\n".join(lines), encoding="utf-8")
-    except Exception:
-        log.exception("Failed to write html report to %s", html_path)
+    # Ensure output directory exists and write the primary report. Let
+    # any IO errors propagate to the caller instead of silently swallowing
+    # them so callers can handle failures appropriately.
+    output_dir.mkdir(parents=True, exist_ok=True)
+    html_path.write_text("\n".join(lines), encoding="utf-8")
 
     # Return the report path inside the provided output directory. Do not
     # create any persistent fallback copies — the caller controls output
@@ -64,6 +70,9 @@ def save_html_report(output_dir: Path, groups: dict[int, list[str]], stage: str)
 
 def save_hnsw_index(path: Path, embeddings: np.ndarray) -> Path:
     import hnswlib
+
+    # Ensure parent directory exists before saving the index file
+    path.parent.mkdir(parents=True, exist_ok=True)
 
     count, dimensions = embeddings.shape
     index = hnswlib.Index(space="cosine", dim=dimensions)
@@ -80,7 +89,11 @@ def save_umap_visualization(output_dir: Path, embeddings: np.ndarray, labels: np
         import matplotlib.pyplot as plt
         import umap
     except ImportError:
+        # Optional dependency; if unavailable, be graceful and return None
         return None
+
+    # Ensure output directory exists before creating the figure
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     reducer = umap.UMAP(n_components=2, random_state=42, n_neighbors=15, min_dist=0.1)
     xy = reducer.fit_transform(embeddings)

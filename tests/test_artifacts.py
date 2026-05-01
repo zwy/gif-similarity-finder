@@ -11,6 +11,8 @@ from gif_similarity_finder.artifacts import (
     save_embedding_cache,
     save_group_json,
     save_html_report,
+    save_hnsw_index,
+    save_umap_visualization,
 )
 from gif_similarity_finder.types import EmbeddingCacheData
 
@@ -45,6 +47,37 @@ class ArtifactsTest(unittest.TestCase):
             # while that directory is active; do the assertion inside the
             # TemporaryDirectory scope.
             self.assertTrue(report_path.exists())
+
+    def test_save_hnsw_index_creates_file(self) -> None:
+        try:
+            import hnswlib  # type: ignore
+        except ImportError:
+            self.skipTest("hnswlib not installed")
+
+        rs = np.random.RandomState(42)
+        embeddings = rs.rand(10, 16).astype(np.float32)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "index.bin"
+            target = save_hnsw_index(path, embeddings)
+            self.assertTrue(target.exists())
+
+    def test_save_umap_visualization_graceful_when_missing_deps(self) -> None:
+        # Simulate ImportError for optional dependencies using a patched __import__
+        embeddings = np.zeros((4, 8), dtype=np.float32)
+        labels = np.array([0, 1, 0, 1])
+
+        import builtins as _builtins
+        real_import = _builtins.__import__
+
+        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name.startswith("umap") or name.startswith("matplotlib"):
+                raise ImportError("simulated missing optional dependency")
+            return real_import(name, globals, locals, fromlist, level)
+
+        with mock.patch("builtins.__import__", side_effect=fake_import):
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                result = save_umap_visualization(Path(tmp_dir), embeddings, labels)
+                self.assertIsNone(result)
 
 
 if __name__ == "__main__":
