@@ -172,6 +172,9 @@ process.stdout.write(JSON.stringify({
         self.assertIn('<input id="report-search"', html)
         self.assertIn('<select id="report-sort"', html)
         self.assertIn('<input id="report-hide-noise" type="checkbox"', html)
+        self.assertIn("if (document.readyState === 'loading')", html)
+        self.assertIn("document.addEventListener('DOMContentLoaded', renderVisibleRange)", html)
+        self.assertIn("renderVisibleRange();", html)
 
     def test_render_report_html_does_not_pre_render_every_item_card(self) -> None:
         # Large dataset should not eagerly pre-render one card per item in the
