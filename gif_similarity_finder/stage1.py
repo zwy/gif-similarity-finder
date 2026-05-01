@@ -27,6 +27,8 @@ def compute_phash(gif_path: Path, n_frames: int = 6) -> np.ndarray | None:
 
 def hamming_distance_frames(h1: np.ndarray, h2: np.ndarray) -> float:
     compared = min(len(h1), len(h2))
+    if compared == 0:
+        return 0.0
     distances = [np.sum(h1[index] != h2[index]) for index in range(compared)]
     return float(np.mean(distances))
 
@@ -69,5 +71,8 @@ def run_stage1(gif_paths: list[Path], hash_threshold: int) -> Stage1Result:
         new_id: members
         for new_id, (_, members) in enumerate(sorted(grouped.items(), key=lambda item: -len(item[1])))
     }
-    ordered[-1] = [str(path) for path in valid_paths if not any(str(path) in values for values in grouped.values())]
+    # collect ungrouped paths and only add the noise bucket if non-empty
+    ungrouped = [str(path) for path in valid_paths if not any(str(path) in values for values in grouped.values())]
+    if ungrouped:
+        ordered[-1] = ungrouped
     return Stage1Result(groups=ordered, hashed_paths=valid_paths, match_count=match_count)
