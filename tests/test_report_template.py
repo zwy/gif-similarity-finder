@@ -1,7 +1,11 @@
 import unittest
 
 from gif_similarity_finder.report_data import build_report_dataset
-from gif_similarity_finder.report_template import render_report_html
+from gif_similarity_finder.report_template import (
+    INITIAL_PREVIEW_LIMIT,
+    VISIBLE_SLICE_LIMIT,
+    render_report_html,
+)
 
 
 class ReportTemplateTest(unittest.TestCase):
@@ -29,11 +33,10 @@ class ReportTemplateTest(unittest.TestCase):
 
         # Ensure we have a bounded preview slice rather than nearly all items.
         card_count = html.count('class="report-card"')
-        self.assertGreater(card_count, 0)
-        self.assertLess(card_count, total)
+        self.assertEqual(card_count, INITIAL_PREVIEW_LIMIT)
         self.assertIn("renderVisibleRange", html)
-        self.assertIn("const INITIAL_PREVIEW_LIMIT = 12", html)
-        self.assertIn("const VISIBLE_SLICE_LIMIT = 24", html)
+        self.assertIn(f"const INITIAL_PREVIEW_LIMIT = {INITIAL_PREVIEW_LIMIT}", html)
+        self.assertIn(f"const VISIBLE_SLICE_LIMIT = {VISIBLE_SLICE_LIMIT}", html)
         self.assertIn("initialItems.slice(0, VISIBLE_SLICE_LIMIT)", html)
         self.assertIn("filter((item) => !item.is_noise)", html)
 
