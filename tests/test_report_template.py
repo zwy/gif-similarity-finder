@@ -22,6 +22,8 @@ class ReportTemplateTest(unittest.TestCase):
         search: str = "",
         sort: str = "group-size-desc",
         hide_noise: bool = True,
+        ready_state: str = "complete",
+        fire_dom_content_loaded: bool = False,
     ) -> dict:
         script_match = re.search(r"<script>(.*)</script>", html, re.DOTALL)
         self.assertIsNotNone(script_match)
@@ -36,6 +38,7 @@ if (!scriptMatch) {
 }
 
 const config = JSON.parse(process.env.REPORT_CONFIG || '{}');
+const initialCardCount = (html.match(/class="report-card"/g) || []).length;
 
 function createElement(id = null) {
   const element = {
@@ -80,9 +83,15 @@ const elements = {
 elements['report-search'].value = config.search || '';
 elements['report-sort'].value = config.sort || 'group-size-desc';
 elements['report-hide-noise'].checked = config.hideNoise !== false;
+for (let index = 0; index < initialCardCount; index += 1) {
+  const card = createElement('article');
+  card.className = 'report-card';
+  elements['report-grid'].children.push(card);
+}
 
 const document = {
-  readyState: 'complete',
+  readyState: config.readyState || 'complete',
+  listeners: {},
   getElementById(id) {
     if (!elements[id]) {
       elements[id] = createElement(id);
@@ -92,7 +101,9 @@ const document = {
   createElement(tagName) {
     return createElement(tagName);
   },
-  addEventListener() {},
+  addEventListener(type, handler) {
+    this.listeners[type] = handler;
+  },
 };
 
 const context = {
@@ -107,11 +118,9 @@ const context = {
 context.window = context;
 vm.createContext(context);
 vm.runInContext(scriptMatch[1], context);
-
-elements['report-search'].value = config.search || '';
-elements['report-sort'].value = config.sort || 'group-size-desc';
-elements['report-hide-noise'].checked = config.hideNoise !== false;
-context.renderVisibleRange();
+if (config.fireDOMContentLoaded && document.listeners['DOMContentLoaded']) {
+  document.listeners['DOMContentLoaded']();
+}
 
 const cards = elements['report-grid'].children.filter((child) => child.className === 'report-card');
 const spacers = elements['report-grid'].children.filter((child) => child.className === 'spacer');
@@ -128,6 +137,7 @@ process.stdout.write(JSON.stringify({
     sort: Object.keys(elements['report-sort'].listeners),
     hideNoise: Object.keys(elements['report-hide-noise'].listeners),
   },
+  documentListenerTypes: Object.keys(document.listeners),
 }));
 """
         result = subprocess.run(
@@ -143,6 +153,8 @@ process.stdout.write(JSON.stringify({
                         "search": search,
                         "sort": sort,
                         "hideNoise": hide_noise,
+                        "readyState": ready_state,
+                        "fireDOMContentLoaded": fire_dom_content_loaded,
                     }
                 ),
             },
@@ -218,6 +230,20 @@ process.stdout.write(JSON.stringify({
 
         self.assertIn('class="report-card"', html)
         self.assertIn("a.gif", html)
+
+    def test_render_report_html_auto_renders_after_dom_content_loaded(self) -> None:
+        dataset = build_report_dataset({0: ["a.gif", "b.gif"]}, stage="stage1_same_source")
+
+        html = render_report_html(dataset)
+        runtime = self._render_runtime_state(
+            html,
+            ready_state="loading",
+            fire_dom_content_loaded=True,
+        )
+
+        self.assertIn("DOMContentLoaded", runtime["documentListenerTypes"])
+        self.assertGreater(runtime["gridCardCount"], 0)
+        self.assertEqual(runtime["stageText"], "Same-source groups")
 
     def test_render_report_html_escapes_preview_card_content(self) -> None:
         dataset = build_report_dataset({0: ['a<b&"\' .gif']}, stage="stage1_same_source")
