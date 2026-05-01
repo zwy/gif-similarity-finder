@@ -28,13 +28,16 @@ class TypesTest(unittest.TestCase):
 
 
 
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 import numpy as np
 
+from gif_similarity_finder.pipeline import run_pipeline
 from gif_similarity_finder.stage2 import run_stage2
+from gif_similarity_finder.types import PipelineConfig, Stage1Result, Stage2Result
 
 
 class Stage2ContractTest(unittest.TestCase):
@@ -116,6 +119,46 @@ class Stage2ContractTest(unittest.TestCase):
         # And the result should still be as expected
         self.assertEqual(result.groups[0], ["a.gif"])
         self.assertEqual(result.groups[-1], ["b.gif"])
+
+
+class PipelineOrchestrationTest(unittest.TestCase):
+    def test_run_pipeline_calls_stage_modules_and_artifact_writers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = PipelineConfig(
+                input_dir=Path(tmp_dir),
+                output_dir=Path(tmp_dir) / "output",
+                frames=8,
+                hash_threshold=10,
+                min_cluster_size=3,
+                batch_size=32,
+                device="auto",
+                skip_stage1=False,
+                skip_stage2=False,
+            )
+
+            with mock.patch("gif_similarity_finder.pipeline.collect_gifs", return_value=[Path("a.gif")]), mock.patch(
+                "gif_similarity_finder.pipeline.run_stage1",
+                return_value=Stage1Result(groups={0: ["a.gif"]}, hashed_paths=[Path("a.gif")], match_count=0),
+            ) as stage1_mock, mock.patch(
+                "gif_similarity_finder.pipeline.run_stage2",
+                return_value=Stage2Result(
+                    groups={0: ["a.gif"]},
+                    valid_paths=[Path("a.gif")],
+                    embeddings=np.array([[1.0, 0.0]], dtype=np.float32),
+                    labels=np.array([0], dtype=np.int64),
+                ),
+            ) as stage2_mock, mock.patch(
+                "gif_similarity_finder.pipeline.load_embedding_cache", return_value=None
+            ), mock.patch("gif_similarity_finder.pipeline.save_group_json") as save_group_json_mock, mock.patch(
+                "gif_similarity_finder.pipeline.save_html_report"
+            ), mock.patch("gif_similarity_finder.pipeline.save_embedding_cache"), mock.patch(
+                "gif_similarity_finder.pipeline.save_hnsw_index"
+            ), mock.patch("gif_similarity_finder.pipeline.save_umap_visualization"):
+                run_pipeline(config)
+
+        stage1_mock.assert_called_once()
+        stage2_mock.assert_called_once()
+        self.assertGreaterEqual(save_group_json_mock.call_count, 2)
 
 
 if __name__ == "__main__":
