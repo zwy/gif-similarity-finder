@@ -213,14 +213,15 @@ process.stdout.write(JSON.stringify({
         self.assertEqual(runtime_search["paths"], ["b.gif"])
         self.assertEqual(runtime_sorted["paths"][0], "a.gif")
 
-    def test_render_report_html_hides_noise_in_initial_slice_by_default(self) -> None:
+    def test_render_report_html_shows_noise_fallback_when_dataset_is_all_noise(self) -> None:
         dataset = build_report_dataset({-1: ["noise-a.gif", "noise-b.gif"]}, stage="stage2_action_clusters")
 
         html = render_report_html(dataset)
         runtime = self._render_runtime_state(html)
 
-        self.assertNotIn('class="report-card"', html)
-        self.assertEqual(runtime["gridCardCount"], 0)
+        self.assertIn('class="report-card"', html)
+        self.assertIn("noise-a.gif", html)
+        self.assertEqual(runtime["gridCardCount"], 2)
         self.assertEqual(runtime["spacerCount"], 1)
 
     def test_render_report_html_renders_a_visible_preview_slice(self) -> None:
