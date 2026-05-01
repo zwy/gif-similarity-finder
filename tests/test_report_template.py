@@ -45,9 +45,18 @@ class ReportTemplateTest(unittest.TestCase):
         self.assertIn("document.getElementById('report-search').addEventListener", html)
         self.assertIn("document.getElementById('report-sort').addEventListener", html)
         self.assertIn("document.getElementById('report-hide-noise').addEventListener", html)
+        self.assertIn('<input id="report-hide-noise" type="checkbox" checked>', html)
         self.assertIn("if (hideNoise)", html)
         self.assertIn("sortValue === 'name-asc'", html)
         self.assertIn("right.group_size - left.group_size", html)
+
+    def test_render_report_html_hides_noise_in_initial_slice_by_default(self) -> None:
+        dataset = build_report_dataset({-1: ["noise-a.gif", "noise-b.gif"]}, stage="stage2_action_clusters")
+
+        html = render_report_html(dataset)
+
+        self.assertNotIn('class="report-card"', html)
+        self.assertIn("if (hideNoise)", html)
 
     def test_render_report_html_renders_a_visible_preview_slice(self) -> None:
         dataset = build_report_dataset({0: ["a.gif", "b.gif"]}, stage="stage1_same_source")

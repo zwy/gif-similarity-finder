@@ -27,7 +27,7 @@ def render_report_html(dataset: ReportDataset) -> str:
     }
     stage_label = stage_labels.get(dataset.summary.stage, dataset.summary.stage)
     card_group_label = card_group_labels.get(dataset.summary.stage, "Group")
-    initial_items = payload["items"][:INITIAL_PREVIEW_LIMIT]
+    initial_items = [item for item in payload["items"] if not item["is_noise"]][:INITIAL_PREVIEW_LIMIT]
     initial_cards = "".join(
         (
             '<article class="report-card">'
@@ -71,7 +71,7 @@ def render_report_html(dataset: ReportDataset) -> str:
         <option value="group-size-desc">Group size</option>
         <option value="name-asc">Name</option>
       </select>
-      <label><input id="report-hide-noise" type="checkbox"> Hide noise</label>
+      <label><input id="report-hide-noise" type="checkbox" checked> Hide noise</label>
     </aside>
     <main id="report-main">
       <div id="report-toolbar">Toolbar</div>
