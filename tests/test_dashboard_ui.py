@@ -212,6 +212,17 @@ class DashboardUiTest(unittest.TestCase):
                 await Promise.resolve();
               };
               const cardsForGrid = () => elements['dashboard-grid'].children.filter((child) => child.className === 'dashboard-card');
+              const actionSnapshots = [];
+              const snapshotStats = (label) => {
+                const cards = cardsForGrid();
+                actionSnapshots.push({
+                  label: label || '',
+                  filteredCount: runtime.getFilteredCount(),
+                  visibleCount: runtime.getVisibleCount(),
+                  filterSortComputeCount: runtime.getFilterSortComputeCount(),
+                  firstCardLabel: cards[0] && cards[0].children[1] ? cards[0].children[1].textContent : null,
+                });
+              };
               const runActions = async () => {
                 const actions = config.actions || [];
                 for (const action of actions) {
@@ -294,6 +305,8 @@ class DashboardUiTest(unittest.TestCase):
                       selectedImage.onerror();
                       await flush();
                     }
+                  } else if (action.type === 'snapshot') {
+                    snapshotStats(action.label || '');
                   }
                 }
               };
@@ -335,8 +348,10 @@ class DashboardUiTest(unittest.TestCase):
                    emptyStateText: (elements['dashboard-empty-state'] && elements['dashboard-empty-state'].textContent) || '',
                    activeTabStage: elements['stage-tab-stage2_action_clusters'].attributes['aria-selected'] === 'true' ? 'stage2_action_clusters' : 'stage1_same_source',
                    storedActiveTab: localStorageState['gif-dashboard-active-stage'] || null,
-                   loadCalls,
-                 }));
+                   filterSortComputeCount: runtime.getFilterSortComputeCount(),
+                   actionSnapshots,
+                    loadCalls,
+                  }));
               }).catch((error) => {
                 console.error(error);
                 process.exit(1);
@@ -570,6 +585,58 @@ class DashboardUiTest(unittest.TestCase):
             }
         )
         self.assertEqual(runtime["cardLabels"], ["alpha big", "gamma big", "alpha mid", "beta low"])
+
+    def test_filter_sort_cache_is_reused_on_plain_scroll(self) -> None:
+        runtime = self._run_runtime(
+            {
+                "stage1Count": 400,
+                "actions": [
+                    {"type": "snapshot", "label": "before-scroll"},
+                    {"type": "scroll", "scrollTop": 1840},
+                    {"type": "snapshot", "label": "after-scroll"},
+                ],
+            }
+        )
+        before = runtime["actionSnapshots"][0]["filterSortComputeCount"]
+        after = runtime["actionSnapshots"][1]["filterSortComputeCount"]
+        self.assertEqual(before, after)
+
+    def test_filter_sort_cache_invalidates_when_stage_items_change(self) -> None:
+        def shard(name: str, start: int, count: int) -> dict:
+            items = [
+                {
+                    "id": f"stage1-{index}",
+                    "name": f"stage1 {index}",
+                    "gif_path": f"/stage1-{index}.gif",
+                    "preview_path": f"previews/stage1-{index}.webp",
+                    "group_id": "10",
+                    "group_size": 4,
+                    "is_noise": False,
+                    "stage": "stage1_same_source",
+                }
+                for index in range(start, start + count)
+            ]
+            return {"file_name": name, "items": items}
+
+        runtime = self._run_runtime(
+            {
+                "stage1Shards": [
+                    shard("dashboard_stage1_000.js", 0, 60),
+                    shard("dashboard_stage1_001.js", 60, 60),
+                ],
+                "actions": [
+                    {"type": "snapshot", "label": "before-scroll"},
+                    {"type": "scroll", "scrollTop": 3680},
+                    {"type": "scroll", "scrollTop": 3680},
+                    {"type": "snapshot", "label": "after-scroll"},
+                ],
+            }
+        )
+        before = runtime["actionSnapshots"][0]["filterSortComputeCount"]
+        after = runtime["actionSnapshots"][1]["filterSortComputeCount"]
+        stage_loads = [src for src in runtime["loadCalls"] if "dashboard_stage1_" in src]
+        self.assertIn("../output/dashboard_stage1_001.js", stage_loads)
+        self.assertGreater(after, before)
 
     def test_min_group_size_filter_integrates_with_search_and_hide_noise(self) -> None:
         stage1_items = [

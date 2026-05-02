@@ -29,6 +29,9 @@
       selectedGifUnavailable: false,
       renderToken: 0,
       warnings: [],
+      filterSortCacheKey: null,
+      filterSortCacheItems: null,
+      filterSortComputeCount: 0,
     };
     let elements = null;
     let manifestLoadPromise = null;
@@ -421,10 +424,30 @@
       return compareText(escapeText(leftItem.id), escapeText(rightItem.id));
     }
 
+    function buildFilterSortCacheKey(stageKey) {
+      const loadState = getStageLoadState(stageKey);
+      return [
+        stageKey,
+        state.search,
+        state.sortKey,
+        state.hideNoise ? "1" : "0",
+        String(state.minGroupSize),
+        String(loadState.loadedShardCount),
+        String(loadState.items.length),
+      ].join("|");
+    }
+
     function filteredItemsForActiveStage() {
+      const cacheKey = buildFilterSortCacheKey(state.activeStage);
+      if (state.filterSortCacheKey === cacheKey && state.filterSortCacheItems) {
+        return state.filterSortCacheItems;
+      }
       const items = state.stageItems[state.activeStage] || [];
       const matcher = createItemMatcher();
-      return items.filter(matcher).sort(compareItems);
+      state.filterSortCacheItems = items.filter(matcher).sort(compareItems);
+      state.filterSortCacheKey = cacheKey;
+      state.filterSortComputeCount += 1;
+      return state.filterSortCacheItems;
     }
 
     function readMinGroupSize(rawValue) {
@@ -505,10 +528,10 @@
       return { columns, startRow, endRow, totalRows, startIndex, endIndex };
     }
 
-    async function ensureItemsAvailableForWindow(windowEndIndex, matcher) {
+    async function ensureItemsAvailableForWindow(windowEndIndex) {
       const loadState = getStageLoadState(state.activeStage);
       while (true) {
-        const filteredCount = loadState.items.filter(matcher).length;
+        const filteredCount = filteredItemsForActiveStage().length;
         if (filteredCount > windowEndIndex || loadState.fullyLoaded) {
           state.stageItems[state.activeStage] = loadState.items;
           return;
@@ -592,14 +615,13 @@
         return;
       }
       const renderToken = ++state.renderToken;
-      const matcher = createItemMatcher();
       const columns = getGridColumns();
       const clientHeight = elements.grid.clientHeight || (ROW_HEIGHT_PX * 4);
       const scrollTop = elements.grid.scrollTop || 0;
       const firstVisibleRow = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT_PX));
       const targetEndRow = firstVisibleRow + Math.ceil(clientHeight / ROW_HEIGHT_PX) + (OVERSCAN_ROWS * 2);
       const targetEndIndex = targetEndRow * columns;
-      await ensureItemsAvailableForWindow(targetEndIndex, matcher);
+      await ensureItemsAvailableForWindow(targetEndIndex);
       if (renderToken !== state.renderToken) {
         return;
       }
@@ -740,6 +762,7 @@
       setStage,
       getVisibleCount: () => state.visibleCount,
       getFilteredCount: () => state.filteredCount,
+      getFilterSortComputeCount: () => state.filterSortComputeCount,
     };
   }
 
