@@ -1,12 +1,15 @@
 import tempfile
 import unittest
 from argparse import Namespace
+from dataclasses import asdict
 from pathlib import Path
 from unittest import mock
 
 import gif_similarity
 import numpy as np
 
+import gif_similarity_finder.pipeline as pipeline_module
+from gif_similarity_finder.dashboard_data import DashboardItem, DashboardShard, DashboardStage, DashboardSummary
 from gif_similarity_finder.pipeline import run_pipeline
 from gif_similarity_finder.stage2 import run_stage2
 from gif_similarity_finder.types import (
@@ -179,23 +182,56 @@ class PipelineOrchestrationTest(unittest.TestCase):
             skip_stage2=skip_stage2,
         )
 
+    def make_stage(self, stage_key: str, gif_paths: list[Path]) -> DashboardStage:
+        items = [
+            DashboardItem(
+                id=f"{stage_key}-{index}",
+                name=gif_path.stem,
+                gif_path=str(gif_path),
+                preview_path=f"previews/{stage_key}-{index}.webp",
+                group_id="0",
+                group_size=1,
+                is_noise=False,
+                stage=stage_key,
+            )
+            for index, gif_path in enumerate(gif_paths)
+        ]
+        summary = DashboardSummary(
+            total_items=len(items),
+            total_groups=1 if items else 0,
+            grouped_items=len(items),
+            noise_items=0,
+            largest_group_size=1 if items else 0,
+        )
+        return DashboardStage(stage_key=stage_key, summary=summary, items=items)
+
     def test_run_pipeline_wires_stage_calls_and_artifact_writers(self) -> None:
-        gif_paths = [Path("a.gif"), Path("b.gif")]
-        stage1_result = Stage1Result(groups={0: ["a.gif"]}, hashed_paths=gif_paths, match_count=1)
+        self.assertFalse(hasattr(pipeline_module, "save_html_report"))
         cache_data = EmbeddingCacheData(
             paths=[Path("cached.gif")],
             embeddings=np.array([[0.1, 0.2]], dtype=np.float32),
-        )
-        stage2_result = Stage2Result(
-            groups={1: ["b.gif"]},
-            valid_paths=gif_paths,
-            embeddings=np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32),
-            labels=np.array([1, 1], dtype=np.int64),
         )
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = self.make_config(tmp_dir)
             cache_path = config.output_dir / "clip_embeddings_cache.npz"
+            gif_a = Path(tmp_dir) / "a.gif"
+            gif_b = Path(tmp_dir) / "b.gif"
+            gif_a.write_bytes(b"GIF89a")
+            gif_b.write_bytes(b"GIF89a")
+            gif_paths = [gif_a, gif_b]
+            stage1_result = Stage1Result(groups={0: [str(gif_a)]}, hashed_paths=gif_paths, match_count=1)
+            stage2_result = Stage2Result(
+                groups={1: [str(gif_b)]},
+                valid_paths=gif_paths,
+                embeddings=np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32),
+                labels=np.array([1, 1], dtype=np.int64),
+            )
+            stage1_dashboard = self.make_stage("stage1_same_source", [gif_a])
+            stage2_dashboard = self.make_stage("stage2_action_clusters", [gif_b])
+            stage1_shard = DashboardShard(file_name="dashboard_stage1_000.js", items=stage1_dashboard.items)
+            stage2_shard = DashboardShard(file_name="dashboard_stage2_000.js", items=stage2_dashboard.items)
+            manifest_payload = {"stage1_same_source": {"shards": []}, "stage2_action_clusters": {"shards": []}}
 
             with mock.patch("gif_similarity_finder.pipeline.collect_gifs", return_value=gif_paths) as collect_mock, mock.patch(
                 "gif_similarity_finder.pipeline.run_stage1", return_value=stage1_result
@@ -206,8 +242,20 @@ class PipelineOrchestrationTest(unittest.TestCase):
             ) as stage2_mock, mock.patch(
                 "gif_similarity_finder.pipeline.save_group_json"
             ) as save_group_json_mock, mock.patch(
-                "gif_similarity_finder.pipeline.save_html_report"
-            ) as save_html_report_mock, mock.patch(
+                "gif_similarity_finder.pipeline.build_dashboard_stage",
+                side_effect=[stage1_dashboard, stage2_dashboard],
+            ) as build_dashboard_stage_mock, mock.patch(
+                "gif_similarity_finder.pipeline.split_stage_items",
+                side_effect=[[stage1_shard], [stage2_shard]],
+            ) as split_stage_items_mock, mock.patch(
+                "gif_similarity_finder.pipeline.save_preview_image"
+            ) as save_preview_image_mock, mock.patch(
+                "gif_similarity_finder.pipeline.save_dashboard_stage_shard"
+            ) as save_dashboard_stage_shard_mock, mock.patch(
+                "gif_similarity_finder.pipeline.build_dashboard_manifest", return_value=manifest_payload
+            ) as build_dashboard_manifest_mock, mock.patch(
+                "gif_similarity_finder.pipeline.save_dashboard_manifest"
+            ) as save_dashboard_manifest_mock, mock.patch(
                 "gif_similarity_finder.pipeline.save_embedding_cache"
             ) as save_embedding_cache_mock, mock.patch(
                 "gif_similarity_finder.pipeline.save_hnsw_index"
@@ -233,12 +281,29 @@ class PipelineOrchestrationTest(unittest.TestCase):
                 mock.call(config.output_dir / "stage2_action_clusters.json", stage2_result.groups),
             ]
         )
-        save_html_report_mock.assert_has_calls(
+        build_dashboard_stage_mock.assert_has_calls(
             [
-                mock.call(config.output_dir, stage1_result.groups, "stage1_same_source"),
-                mock.call(config.output_dir, stage2_result.groups, "stage2_action_clusters"),
+                mock.call("stage1_same_source", stage1_result.groups, preview_dir_name="previews"),
+                mock.call("stage2_action_clusters", stage2_result.groups, preview_dir_name="previews"),
             ]
         )
+        split_stage_items_mock.assert_has_calls(
+            [mock.call(stage1_dashboard, shard_size=1000), mock.call(stage2_dashboard, shard_size=1000)]
+        )
+        save_preview_image_mock.assert_has_calls(
+            [
+                mock.call(gif_a, config.output_dir / stage1_dashboard.items[0].preview_path),
+                mock.call(gif_b, config.output_dir / stage2_dashboard.items[0].preview_path),
+            ]
+        )
+        save_dashboard_stage_shard_mock.assert_has_calls(
+            [
+                mock.call(config.output_dir / stage1_shard.file_name, stage1_dashboard.stage_key, [asdict(item) for item in stage1_shard.items]),
+                mock.call(config.output_dir / stage2_shard.file_name, stage2_dashboard.stage_key, [asdict(item) for item in stage2_shard.items]),
+            ]
+        )
+        build_dashboard_manifest_mock.assert_called_once_with(config.output_dir, [stage1_dashboard, stage2_dashboard])
+        save_dashboard_manifest_mock.assert_called_once_with(config.output_dir / "dashboard_manifest.js", manifest_payload)
         save_embedding_cache_mock.assert_called_once()
         cache_call_args = save_embedding_cache_mock.call_args.args
         self.assertEqual(cache_call_args[0], cache_path)
@@ -252,16 +317,20 @@ class PipelineOrchestrationTest(unittest.TestCase):
         )
 
     def test_run_pipeline_skips_stage1_when_configured(self) -> None:
-        gif_paths = [Path("a.gif")]
-        stage2_result = Stage2Result(
-            groups={0: ["a.gif"]},
-            valid_paths=gif_paths,
-            embeddings=np.array([[1.0, 0.0]], dtype=np.float32),
-            labels=np.array([0], dtype=np.int64),
-        )
-
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = self.make_config(tmp_dir, skip_stage1=True)
+            gif_a = Path(tmp_dir) / "a.gif"
+            gif_a.write_bytes(b"GIF89a")
+            gif_paths = [gif_a]
+            stage2_result = Stage2Result(
+                groups={0: [str(gif_a)]},
+                valid_paths=gif_paths,
+                embeddings=np.array([[1.0, 0.0]], dtype=np.float32),
+                labels=np.array([0], dtype=np.int64),
+            )
+            stage2_dashboard = self.make_stage("stage2_action_clusters", [gif_a])
+            stage2_shard = DashboardShard(file_name="dashboard_stage2_000.js", items=stage2_dashboard.items)
+            manifest_payload = {"stage2_action_clusters": {"shards": []}}
 
             with mock.patch("gif_similarity_finder.pipeline.collect_gifs", return_value=gif_paths), mock.patch(
                 "gif_similarity_finder.pipeline.run_stage1"
@@ -272,8 +341,18 @@ class PipelineOrchestrationTest(unittest.TestCase):
             ) as stage2_mock, mock.patch(
                 "gif_similarity_finder.pipeline.save_group_json"
             ) as save_group_json_mock, mock.patch(
-                "gif_similarity_finder.pipeline.save_html_report"
-            ) as save_html_report_mock, mock.patch(
+                "gif_similarity_finder.pipeline.build_dashboard_stage", return_value=stage2_dashboard
+            ) as build_dashboard_stage_mock, mock.patch(
+                "gif_similarity_finder.pipeline.split_stage_items", return_value=[stage2_shard]
+            ) as split_stage_items_mock, mock.patch(
+                "gif_similarity_finder.pipeline.save_preview_image"
+            ) as save_preview_image_mock, mock.patch(
+                "gif_similarity_finder.pipeline.save_dashboard_stage_shard"
+            ) as save_dashboard_stage_shard_mock, mock.patch(
+                "gif_similarity_finder.pipeline.build_dashboard_manifest", return_value=manifest_payload
+            ) as build_dashboard_manifest_mock, mock.patch(
+                "gif_similarity_finder.pipeline.save_dashboard_manifest"
+            ) as save_dashboard_manifest_mock, mock.patch(
                 "gif_similarity_finder.pipeline.save_embedding_cache"
             ) as save_embedding_cache_mock, mock.patch(
                 "gif_similarity_finder.pipeline.save_hnsw_index"
@@ -286,7 +365,16 @@ class PipelineOrchestrationTest(unittest.TestCase):
         load_cache_mock.assert_called_once_with(config.output_dir / "clip_embeddings_cache.npz")
         stage2_mock.assert_called_once()
         save_group_json_mock.assert_called_once_with(config.output_dir / "stage2_action_clusters.json", stage2_result.groups)
-        save_html_report_mock.assert_called_once_with(config.output_dir, stage2_result.groups, "stage2_action_clusters")
+        build_dashboard_stage_mock.assert_called_once_with("stage2_action_clusters", stage2_result.groups, preview_dir_name="previews")
+        split_stage_items_mock.assert_called_once_with(stage2_dashboard, shard_size=1000)
+        save_preview_image_mock.assert_called_once_with(gif_a, config.output_dir / stage2_dashboard.items[0].preview_path)
+        save_dashboard_stage_shard_mock.assert_called_once_with(
+            config.output_dir / stage2_shard.file_name,
+            stage2_dashboard.stage_key,
+            [asdict(item) for item in stage2_shard.items],
+        )
+        build_dashboard_manifest_mock.assert_called_once_with(config.output_dir, [stage2_dashboard])
+        save_dashboard_manifest_mock.assert_called_once_with(config.output_dir / "dashboard_manifest.js", manifest_payload)
         save_embedding_cache_mock.assert_called_once()
         save_hnsw_index_mock.assert_called_once_with(config.output_dir / "hnsw.index", stage2_result.embeddings)
         save_umap_visualization_mock.assert_called_once_with(
@@ -296,11 +384,15 @@ class PipelineOrchestrationTest(unittest.TestCase):
         )
 
     def test_run_pipeline_skips_stage2_when_configured(self) -> None:
-        gif_paths = [Path("a.gif")]
-        stage1_result = Stage1Result(groups={0: ["a.gif"]}, hashed_paths=gif_paths, match_count=1)
-
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = self.make_config(tmp_dir, skip_stage2=True)
+            gif_a = Path(tmp_dir) / "a.gif"
+            gif_a.write_bytes(b"GIF89a")
+            gif_paths = [gif_a]
+            stage1_result = Stage1Result(groups={0: [str(gif_a)]}, hashed_paths=gif_paths, match_count=1)
+            stage1_dashboard = self.make_stage("stage1_same_source", [gif_a])
+            stage1_shard = DashboardShard(file_name="dashboard_stage1_000.js", items=stage1_dashboard.items)
+            manifest_payload = {"stage1_same_source": {"shards": []}}
 
             with mock.patch("gif_similarity_finder.pipeline.collect_gifs", return_value=gif_paths), mock.patch(
                 "gif_similarity_finder.pipeline.run_stage1", return_value=stage1_result
@@ -311,8 +403,18 @@ class PipelineOrchestrationTest(unittest.TestCase):
             ) as stage2_mock, mock.patch(
                 "gif_similarity_finder.pipeline.save_group_json"
             ) as save_group_json_mock, mock.patch(
-                "gif_similarity_finder.pipeline.save_html_report"
-            ) as save_html_report_mock, mock.patch(
+                "gif_similarity_finder.pipeline.build_dashboard_stage", return_value=stage1_dashboard
+            ) as build_dashboard_stage_mock, mock.patch(
+                "gif_similarity_finder.pipeline.split_stage_items", return_value=[stage1_shard]
+            ) as split_stage_items_mock, mock.patch(
+                "gif_similarity_finder.pipeline.save_preview_image"
+            ) as save_preview_image_mock, mock.patch(
+                "gif_similarity_finder.pipeline.save_dashboard_stage_shard"
+            ) as save_dashboard_stage_shard_mock, mock.patch(
+                "gif_similarity_finder.pipeline.build_dashboard_manifest", return_value=manifest_payload
+            ) as build_dashboard_manifest_mock, mock.patch(
+                "gif_similarity_finder.pipeline.save_dashboard_manifest"
+            ) as save_dashboard_manifest_mock, mock.patch(
                 "gif_similarity_finder.pipeline.save_embedding_cache"
             ) as save_embedding_cache_mock, mock.patch(
                 "gif_similarity_finder.pipeline.save_hnsw_index"
@@ -325,31 +427,57 @@ class PipelineOrchestrationTest(unittest.TestCase):
         load_cache_mock.assert_not_called()
         stage2_mock.assert_not_called()
         save_group_json_mock.assert_called_once_with(config.output_dir / "stage1_same_source_groups.json", stage1_result.groups)
-        save_html_report_mock.assert_called_once_with(config.output_dir, stage1_result.groups, "stage1_same_source")
+        build_dashboard_stage_mock.assert_called_once_with("stage1_same_source", stage1_result.groups, preview_dir_name="previews")
+        split_stage_items_mock.assert_called_once_with(stage1_dashboard, shard_size=1000)
+        save_preview_image_mock.assert_called_once_with(gif_a, config.output_dir / stage1_dashboard.items[0].preview_path)
+        save_dashboard_stage_shard_mock.assert_called_once_with(
+            config.output_dir / stage1_shard.file_name,
+            stage1_dashboard.stage_key,
+            [asdict(item) for item in stage1_shard.items],
+        )
+        build_dashboard_manifest_mock.assert_called_once_with(config.output_dir, [stage1_dashboard])
+        save_dashboard_manifest_mock.assert_called_once_with(config.output_dir / "dashboard_manifest.js", manifest_payload)
         save_embedding_cache_mock.assert_not_called()
         save_hnsw_index_mock.assert_not_called()
         save_umap_visualization_mock.assert_not_called()
 
     def test_run_pipeline_skips_stage2_embedding_artifacts_without_valid_paths(self) -> None:
-        gif_paths = [Path("a.gif")]
-        stage1_result = Stage1Result(groups={0: ["a.gif"]}, hashed_paths=gif_paths, match_count=1)
-        stage2_result = Stage2Result(
-            groups={},
-            valid_paths=[],
-            embeddings=np.empty((0, 0), dtype=np.float32),
-            labels=np.array([], dtype=np.int64),
-        )
-
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = self.make_config(tmp_dir)
+            gif_a = Path(tmp_dir) / "a.gif"
+            gif_a.write_bytes(b"GIF89a")
+            gif_paths = [gif_a]
+            stage1_result = Stage1Result(groups={0: [str(gif_a)]}, hashed_paths=gif_paths, match_count=1)
+            stage2_result = Stage2Result(
+                groups={},
+                valid_paths=[],
+                embeddings=np.empty((0, 0), dtype=np.float32),
+                labels=np.array([], dtype=np.int64),
+            )
+            stage1_dashboard = self.make_stage("stage1_same_source", [gif_a])
+            stage2_dashboard = self.make_stage("stage2_action_clusters", [])
+            stage1_shard = DashboardShard(file_name="dashboard_stage1_000.js", items=stage1_dashboard.items)
+            manifest_payload = {"stage1_same_source": {"shards": []}, "stage2_action_clusters": {"shards": []}}
 
             with mock.patch("gif_similarity_finder.pipeline.collect_gifs", return_value=gif_paths), mock.patch(
                 "gif_similarity_finder.pipeline.run_stage1", return_value=stage1_result
             ), mock.patch("gif_similarity_finder.pipeline.load_embedding_cache", return_value=None), mock.patch(
                 "gif_similarity_finder.pipeline.run_stage2", return_value=stage2_result
             ), mock.patch("gif_similarity_finder.pipeline.save_group_json") as save_group_json_mock, mock.patch(
-                "gif_similarity_finder.pipeline.save_html_report"
-            ) as save_html_report_mock, mock.patch(
+                "gif_similarity_finder.pipeline.build_dashboard_stage",
+                side_effect=[stage1_dashboard, stage2_dashboard],
+            ) as build_dashboard_stage_mock, mock.patch(
+                "gif_similarity_finder.pipeline.split_stage_items",
+                side_effect=[[stage1_shard], []],
+            ) as split_stage_items_mock, mock.patch(
+                "gif_similarity_finder.pipeline.save_preview_image"
+            ) as save_preview_image_mock, mock.patch(
+                "gif_similarity_finder.pipeline.save_dashboard_stage_shard"
+            ) as save_dashboard_stage_shard_mock, mock.patch(
+                "gif_similarity_finder.pipeline.build_dashboard_manifest", return_value=manifest_payload
+            ) as build_dashboard_manifest_mock, mock.patch(
+                "gif_similarity_finder.pipeline.save_dashboard_manifest"
+            ) as save_dashboard_manifest_mock, mock.patch(
                 "gif_similarity_finder.pipeline.save_embedding_cache"
             ) as save_embedding_cache_mock, mock.patch(
                 "gif_similarity_finder.pipeline.save_hnsw_index"
@@ -364,12 +492,23 @@ class PipelineOrchestrationTest(unittest.TestCase):
                 mock.call(config.output_dir / "stage2_action_clusters.json", stage2_result.groups),
             ]
         )
-        save_html_report_mock.assert_has_calls(
+        build_dashboard_stage_mock.assert_has_calls(
             [
-                mock.call(config.output_dir, stage1_result.groups, "stage1_same_source"),
-                mock.call(config.output_dir, stage2_result.groups, "stage2_action_clusters"),
+                mock.call("stage1_same_source", stage1_result.groups, preview_dir_name="previews"),
+                mock.call("stage2_action_clusters", stage2_result.groups, preview_dir_name="previews"),
             ]
         )
+        split_stage_items_mock.assert_has_calls(
+            [mock.call(stage1_dashboard, shard_size=1000), mock.call(stage2_dashboard, shard_size=1000)]
+        )
+        save_preview_image_mock.assert_called_once_with(gif_a, config.output_dir / stage1_dashboard.items[0].preview_path)
+        save_dashboard_stage_shard_mock.assert_called_once_with(
+            config.output_dir / stage1_shard.file_name,
+            stage1_dashboard.stage_key,
+            [asdict(item) for item in stage1_shard.items],
+        )
+        build_dashboard_manifest_mock.assert_called_once_with(config.output_dir, [stage1_dashboard, stage2_dashboard])
+        save_dashboard_manifest_mock.assert_called_once_with(config.output_dir / "dashboard_manifest.js", manifest_payload)
         save_embedding_cache_mock.assert_not_called()
         save_hnsw_index_mock.assert_not_called()
         save_umap_visualization_mock.assert_not_called()
