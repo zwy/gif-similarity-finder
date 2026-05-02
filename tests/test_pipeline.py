@@ -11,7 +11,7 @@ import numpy as np
 import gif_similarity_finder.pipeline as pipeline_module
 from gif_similarity_finder.dashboard_data import DashboardItem, DashboardShard, DashboardStage, DashboardSummary
 from gif_similarity_finder.pipeline import run_pipeline
-from gif_similarity_finder.stage2 import run_stage2
+from gif_similarity_finder.stage2 import extract_all_embeddings, run_stage2
 from gif_similarity_finder.types import (
     EmbeddingCacheData,
     PipelineConfig,
@@ -99,6 +99,33 @@ class TypesTest(unittest.TestCase):
 
 
 class Stage2ContractTest(unittest.TestCase):
+    def test_extract_all_embeddings_excludes_stale_cached_paths(self) -> None:
+        keep_path = Path("keep.gif")
+        stale_path = Path("stale.gif")
+        new_path = Path("new.gif")
+        cache_data = EmbeddingCacheData(
+            paths=[stale_path, keep_path],
+            embeddings=np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32),
+        )
+
+        with mock.patch("gif_similarity_finder.stage2.extract_gif_embedding", return_value=np.array([0.5, 0.5], dtype=np.float32)) as extract_mock:
+            valid_paths, embeddings = extract_all_embeddings(
+                gif_paths=[keep_path, new_path],
+                model="model",
+                preprocess="pre",
+                device="cpu",
+                n_frames=8,
+                batch_size=32,
+                cache_data=cache_data,
+            )
+
+        self.assertEqual(valid_paths, [keep_path, new_path])
+        np.testing.assert_array_equal(
+            embeddings,
+            np.array([[0.0, 1.0], [0.5, 0.5]], dtype=np.float32),
+        )
+        extract_mock.assert_called_once_with(new_path, "model", "pre", "cpu", 8)
+
     def test_run_stage2_returns_embeddings_and_labels(self) -> None:
         embeddings = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
         labels = np.array([0, -1], dtype=np.int64)

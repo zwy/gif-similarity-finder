@@ -56,11 +56,13 @@ def extract_all_embeddings(
 ) -> tuple[list[Path], np.ndarray]:
     cached_paths = cache_data.paths if cache_data else []
     cached_embeddings = list(cache_data.embeddings) if cache_data else []
-    cached_set = {str(path) for path in cached_paths}
+    gif_path_set = {str(path) for path in gif_paths}
+    cached_pairs = [(path, embedding) for path, embedding in zip(cached_paths, cached_embeddings) if str(path) in gif_path_set]
+    cached_set = {str(path) for path, _ in cached_pairs}
     remaining = [path for path in gif_paths if str(path) not in cached_set]
 
-    valid_paths = list(cached_paths)
-    embedding_list = list(cached_embeddings)
+    valid_paths = [path for path, _ in cached_pairs]
+    embedding_list = [embedding for _, embedding in cached_pairs]
     for offset in tqdm(range(0, len(remaining), batch_size), desc="Extracting CLIP embeddings"):
         for path in remaining[offset : offset + batch_size]:
             embedding = extract_gif_embedding(path, model, preprocess, device, n_frames)
