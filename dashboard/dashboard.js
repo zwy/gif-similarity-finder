@@ -21,6 +21,7 @@
       selectedItem: null,
     };
     let elements = null;
+    let manifestLoadPromise = null;
 
     function escapeText(value) {
       return String(value == null ? "" : value);
@@ -60,9 +61,10 @@
       if (state.manifest) {
         return;
       }
-      if (!win.__GIF_DASHBOARD_MANIFEST__) {
-        await loadScript("../output/dashboard_manifest.js");
+      if (!manifestLoadPromise) {
+        manifestLoadPromise = Promise.resolve(loadScript("../output/dashboard_manifest.js"));
       }
+      await manifestLoadPromise;
       state.manifest = win.__GIF_DASHBOARD_MANIFEST__ || {};
       if (!state.manifest[state.activeStage]) {
         const firstKnownStage = STAGE_KEYS.find((key) => state.manifest[key]);

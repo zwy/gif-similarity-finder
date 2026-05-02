@@ -192,8 +192,13 @@ class DashboardUiTest(unittest.TestCase):
         )
         return json.loads(result.stdout)
 
-    def test_shell_contains_stage_tabs_and_selected_preview_panel(self) -> None:
+    def test_shell_contains_required_structure(self) -> None:
         html = HTML_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("../output/dashboard_manifest.js", html)
+        self.assertIn('id="dashboard-search"', html)
+        self.assertIn('id="dashboard-hide-noise"', html)
+        self.assertIn('id="dashboard-summary"', html)
+        self.assertIn('id="dashboard-grid"', html)
         self.assertIn('id="stage-tab-stage1_same_source"', html)
         self.assertIn('id="stage-tab-stage2_action_clusters"', html)
         self.assertIn('id="selected-preview"', html)
