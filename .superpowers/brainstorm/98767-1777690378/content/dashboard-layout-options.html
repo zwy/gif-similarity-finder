@@ -1,0 +1,90 @@
+<h2>Dashboard 组织方式</h2>
+<p class="subtitle">目标：单个静态入口，读取固定 output 数据路径，用 Tabs 管理 Stage 1 / Stage 2，并为后续扩展留空间。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A · Dataset-first（推荐）</div>
+        <div class="mockup-body">
+          <div class="mock-nav">GIF Similarity Dashboard | Dataset Status | Export</div>
+          <div style="display:flex; gap:12px; margin-top:12px;">
+            <div class="mock-sidebar" style="width:200px;">
+              Output Path<br>
+              Data Health<br>
+              Filters<br>
+              Saved Views
+            </div>
+            <div class="mock-content" style="flex:1;">
+              <div style="display:flex; gap:8px; margin-bottom:10px;">
+                <button class="mock-button">Stage 1</button>
+                <button class="mock-button">Stage 2</button>
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:10px;">
+                <div class="placeholder">Total GIFs</div>
+                <div class="placeholder">Groups</div>
+                <div class="placeholder">Noise</div>
+                <div class="placeholder">Largest Cluster</div>
+              </div>
+              <div class="placeholder" style="height:160px;">Main results table / cards</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 以数据集为中心</h3>
+      <p>顶部显示当前 output 状态，主区域通过 Tabs 切换 Stage 1 / Stage 2，后续可继续加搜索、对比、详情抽屉。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B · Overview-first</div>
+        <div class="mockup-body">
+          <div class="mock-nav">GIF Similarity Dashboard</div>
+          <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-top:12px;">
+            <div class="placeholder" style="height:120px;">Stage 1 summary</div>
+            <div class="placeholder" style="height:120px;">Stage 2 summary</div>
+            <div class="placeholder" style="height:200px;">Recent anomalies / warnings</div>
+            <div class="placeholder" style="height:200px;">Charts / previews</div>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:12px;">
+            <button class="mock-button">Enter Stage 1</button>
+            <button class="mock-button">Enter Stage 2</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. 以总览为中心</h3>
+      <p>更像运营面板，先看全局健康度，再进入 Stage 1 / Stage 2 细节。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C · Analyst workspace</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Dashboard | Compare | Settings</div>
+          <div style="display:flex; gap:12px; margin-top:12px;">
+            <div class="mock-sidebar" style="width:180px;">Stage switcher<br>Query builder<br>Saved filters</div>
+            <div class="mock-content" style="flex:1;">
+              <div class="placeholder" style="height:70px;">Filter chips / search / sort</div>
+              <div style="display:grid; grid-template-columns:2fr 1fr; gap:10px; margin-top:10px;">
+                <div class="placeholder" style="height:220px;">Dense result matrix</div>
+                <div class="placeholder" style="height:220px;">Selection detail panel</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. 以分析工作台为中心</h3>
+      <p>扩展性最强，但结构更重，适合后面要做大量筛选、对比和多视图联动时再上。</p>
+    </div>
+  </div>
+</div>
