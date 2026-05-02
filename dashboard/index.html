@@ -13,6 +13,13 @@
         <div class="mt-4 space-y-4">
           <label class="block text-sm font-medium text-slate-700" for="dashboard-search">Search</label>
           <input id="dashboard-search" type="text" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Search name, path, group">
+          <label class="block text-sm font-medium text-slate-700" for="dashboard-sort">Sort</label>
+          <select id="dashboard-sort" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
+            <option value="name_asc">Name (A → Z)</option>
+            <option value="group_size_desc">Group size (high → low)</option>
+          </select>
+          <label class="block text-sm font-medium text-slate-700" for="dashboard-min-group-size">Minimum group size</label>
+          <input id="dashboard-min-group-size" type="number" min="1" step="1" value="1" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
           <label class="flex items-center gap-2 text-sm text-slate-700" for="dashboard-hide-noise">
             <input id="dashboard-hide-noise" type="checkbox" checked>
             Hide noise

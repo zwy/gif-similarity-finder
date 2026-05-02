@@ -57,6 +57,8 @@ class DashboardUiTest(unittest.TestCase):
             const elements = {
               'dashboard-search': createElement('dashboard-search', 'input'),
               'dashboard-hide-noise': createElement('dashboard-hide-noise', 'input'),
+              'dashboard-sort': createElement('dashboard-sort', 'select'),
+              'dashboard-min-group-size': createElement('dashboard-min-group-size', 'input'),
               'dashboard-summary': createElement('dashboard-summary', 'div'),
               'dashboard-grid': createElement('dashboard-grid', 'div'),
               'selected-preview': createElement('selected-preview', 'aside'),
@@ -66,6 +68,8 @@ class DashboardUiTest(unittest.TestCase):
 
             elements['dashboard-hide-noise'].checked = config.hideNoise !== false;
             elements['dashboard-search'].value = config.search || '';
+            elements['dashboard-sort'].value = config.sortKey || 'name_asc';
+            elements['dashboard-min-group-size'].value = String(config.minGroupSize || 1);
             elements['dashboard-grid'].clientHeight = config.gridClientHeight || 736;
             if (config.virtualColumnsDataset != null) {
               elements['dashboard-grid'].dataset.virtualColumns = String(config.virtualColumnsDataset);
@@ -203,6 +207,24 @@ class DashboardUiTest(unittest.TestCase):
                       elements['dashboard-search'].listeners['input']();
                       await flush();
                     }
+                  } else if (action.type === 'set-sort') {
+                    elements['dashboard-sort'].value = action.value || 'name_asc';
+                    if (elements['dashboard-sort'].listeners['change']) {
+                      elements['dashboard-sort'].listeners['change']();
+                      await flush();
+                    }
+                  } else if (action.type === 'set-min-group-size') {
+                    elements['dashboard-min-group-size'].value = String(action.value || 1);
+                    if (elements['dashboard-min-group-size'].listeners['input']) {
+                      elements['dashboard-min-group-size'].listeners['input']();
+                      await flush();
+                    }
+                  } else if (action.type === 'set-hide-noise') {
+                    elements['dashboard-hide-noise'].checked = action.checked !== false;
+                    if (elements['dashboard-hide-noise'].listeners['change']) {
+                      elements['dashboard-hide-noise'].listeners['change']();
+                      await flush();
+                    }
                   } else if (action.type === 'hover-first-card') {
                     const cards = cardsForGrid();
                     if (cards[0] && cards[0].listeners['mouseenter']) {
@@ -253,6 +275,7 @@ class DashboardUiTest(unittest.TestCase):
                 const selectedImage = elements['selected-preview'].children.find((child) => child.tagName === 'img');
                 process.stdout.write(JSON.stringify({
                   cardCount: cards.length,
+                  cardLabels: cards.map((card) => (card.children[1] ? card.children[1].textContent : null)),
                   firstCardLabel: cards[0] && cards[0].children[1] ? cards[0].children[1].textContent : null,
                   filteredCount: runtime.getFilteredCount(),
                   visibleCount: runtime.getVisibleCount(),
@@ -286,6 +309,8 @@ class DashboardUiTest(unittest.TestCase):
         self.assertNotIn("../output/dashboard_manifest.js", html)
         self.assertIn('id="dashboard-search"', html)
         self.assertIn('id="dashboard-hide-noise"', html)
+        self.assertIn('id="dashboard-sort"', html)
+        self.assertIn('id="dashboard-min-group-size"', html)
         self.assertIn('id="dashboard-summary"', html)
         self.assertIn('id="dashboard-grid"', html)
         self.assertIn('id="stage-tab-stage1_same_source"', html)
@@ -400,6 +425,127 @@ class DashboardUiTest(unittest.TestCase):
         self.assertTrue(runtime["hoverPreviewAfterError"].endswith(".webp"))
         self.assertTrue(runtime["selectedImageSrc"].endswith(".webp"))
         self.assertIn("unavailable", runtime["selectedPanelText"].lower())
+
+    def test_sort_control_changes_rendered_order(self) -> None:
+        stage1_items = [
+            {
+                "id": "stage1-0",
+                "name": "beta low",
+                "gif_path": "/stage1-0.gif",
+                "preview_path": "previews/stage1-0.webp",
+                "group_id": "10",
+                "group_size": 1,
+                "is_noise": False,
+                "stage": "stage1_same_source",
+            },
+            {
+                "id": "stage1-1",
+                "name": "alpha big",
+                "gif_path": "/stage1-1.gif",
+                "preview_path": "previews/stage1-1.webp",
+                "group_id": "11",
+                "group_size": 5,
+                "is_noise": False,
+                "stage": "stage1_same_source",
+            },
+            {
+                "id": "stage1-2",
+                "name": "alpha mid",
+                "gif_path": "/stage1-2.gif",
+                "preview_path": "previews/stage1-2.webp",
+                "group_id": "12",
+                "group_size": 3,
+                "is_noise": False,
+                "stage": "stage1_same_source",
+            },
+            {
+                "id": "stage1-3",
+                "name": "gamma big",
+                "gif_path": "/stage1-3.gif",
+                "preview_path": "previews/stage1-3.webp",
+                "group_id": "13",
+                "group_size": 4,
+                "is_noise": False,
+                "stage": "stage1_same_source",
+            },
+        ]
+        runtime = self._run_runtime(
+            {
+                "stage1Items": stage1_items,
+                "actions": [{"type": "set-sort", "value": "group_size_desc"}],
+            }
+        )
+        self.assertEqual(runtime["cardLabels"], ["alpha big", "gamma big", "alpha mid", "beta low"])
+
+    def test_min_group_size_filter_integrates_with_search_and_hide_noise(self) -> None:
+        stage1_items = [
+            {
+                "id": "stage1-0",
+                "name": "beta low",
+                "gif_path": "/stage1-0.gif",
+                "preview_path": "previews/stage1-0.webp",
+                "group_id": "10",
+                "group_size": 1,
+                "is_noise": False,
+                "stage": "stage1_same_source",
+            },
+            {
+                "id": "stage1-1",
+                "name": "alpha big",
+                "gif_path": "/stage1-1.gif",
+                "preview_path": "previews/stage1-1.webp",
+                "group_id": "11",
+                "group_size": 5,
+                "is_noise": False,
+                "stage": "stage1_same_source",
+            },
+            {
+                "id": "stage1-2",
+                "name": "alpha mid",
+                "gif_path": "/stage1-2.gif",
+                "preview_path": "previews/stage1-2.webp",
+                "group_id": "12",
+                "group_size": 3,
+                "is_noise": False,
+                "stage": "stage1_same_source",
+            },
+            {
+                "id": "stage1-3",
+                "name": "alpha noise",
+                "gif_path": "/stage1-3.gif",
+                "preview_path": "previews/stage1-3.webp",
+                "group_id": "-1",
+                "group_size": 10,
+                "is_noise": True,
+                "stage": "stage1_same_source",
+            },
+        ]
+        runtime = self._run_runtime(
+            {
+                "stage1Items": stage1_items,
+                "actions": [
+                    {"type": "set-sort", "value": "group_size_desc"},
+                    {"type": "set-min-group-size", "value": 4},
+                    {"type": "search", "value": "alpha"},
+                    {"type": "set-hide-noise", "checked": False},
+                ],
+            }
+        )
+        self.assertEqual(runtime["cardLabels"], ["alpha noise", "alpha big"])
+        self.assertEqual(runtime["filteredCount"], 2)
+
+        runtime_hide_noise = self._run_runtime(
+            {
+                "stage1Items": stage1_items,
+                "actions": [
+                    {"type": "set-sort", "value": "group_size_desc"},
+                    {"type": "set-min-group-size", "value": 4},
+                    {"type": "search", "value": "alpha"},
+                ],
+            }
+        )
+        self.assertEqual(runtime_hide_noise["cardLabels"], ["alpha big"])
+        self.assertEqual(runtime_hide_noise["filteredCount"], 1)
 
 
 class DashboardReadmeDocsTest(unittest.TestCase):

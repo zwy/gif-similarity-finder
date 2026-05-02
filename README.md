@@ -107,7 +107,7 @@ dashboard/
 - `output/dashboard_manifest.js` 记录每个阶段的 summary 与 shard 列表，供页面按需加载。
 - `output/dashboard_stage*.js` 是阶段数据分片，滚动和切换阶段时增量加载，避免一次性加载全部结果。
 - `output/previews/*.webp` 是离线预览图；悬停卡片时会回切到原 GIF，加载失败会回退预览图。
-- 当前提供的交互控件包括：`search`（按文件名搜索）和 `hide-noise`（隐藏噪声项）。
+- 当前提供的交互控件包括：`search`（按名称/路径/分组搜索）、`sort`（名称升序或分组大小降序）、`min-group-size`（最小分组大小过滤）和 `hide-noise`（隐藏噪声项）。
 - 噪声簇（`-1`）默认隐藏；取消 `hide-noise` 后才会显示。
 
 ### JSON 格式示例

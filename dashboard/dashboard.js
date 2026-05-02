@@ -20,6 +20,8 @@
       stageItems: {},
       hideNoise: true,
       search: "",
+      sortKey: "name_asc",
+      minGroupSize: 1,
       filteredCount: 0,
       visibleCount: 0,
       selectedItem: null,
@@ -283,6 +285,10 @@
     function createItemMatcher() {
       const searchNeedle = state.search.trim().toLowerCase();
       return function (item) {
+        const groupSize = Number(item.group_size) || 0;
+        if (groupSize < state.minGroupSize) {
+          return false;
+        }
         if (state.hideNoise && item.is_noise) {
           return false;
         }
@@ -301,10 +307,47 @@
       };
     }
 
+    function compareItems(leftItem, rightItem) {
+      function compareText(leftText, rightText) {
+        if (typeof leftText.localeCompare === "function") {
+          return leftText.localeCompare(rightText, undefined, { numeric: true, sensitivity: "base" });
+        }
+        if (leftText < rightText) {
+          return -1;
+        }
+        if (leftText > rightText) {
+          return 1;
+        }
+        return 0;
+      }
+      if (state.sortKey === "group_size_desc") {
+        const leftGroupSize = Number(leftItem.group_size) || 0;
+        const rightGroupSize = Number(rightItem.group_size) || 0;
+        if (leftGroupSize !== rightGroupSize) {
+          return rightGroupSize - leftGroupSize;
+        }
+      }
+      const leftName = escapeText(leftItem.name || leftItem.id);
+      const rightName = escapeText(rightItem.name || rightItem.id);
+      const nameComparison = compareText(leftName, rightName);
+      if (nameComparison !== 0) {
+        return nameComparison;
+      }
+      return compareText(escapeText(leftItem.id), escapeText(rightItem.id));
+    }
+
     function filteredItemsForActiveStage() {
       const items = state.stageItems[state.activeStage] || [];
       const matcher = createItemMatcher();
-      return items.filter(matcher);
+      return items.filter(matcher).sort(compareItems);
+    }
+
+    function readMinGroupSize(rawValue) {
+      const parsed = Number.parseInt(String(rawValue || ""), 10);
+      if (!Number.isFinite(parsed) || parsed < 1) {
+        return 1;
+      }
+      return parsed;
     }
 
     function countTemplateColumns(template) {
@@ -494,6 +537,8 @@
       elements = {
         search: doc.getElementById("dashboard-search"),
         hideNoise: doc.getElementById("dashboard-hide-noise"),
+        sort: doc.getElementById("dashboard-sort"),
+        minGroupSize: doc.getElementById("dashboard-min-group-size"),
         summary: doc.getElementById("dashboard-summary"),
         grid: doc.getElementById("dashboard-grid"),
         selectedPreview: doc.getElementById("selected-preview"),
@@ -505,6 +550,8 @@
 
       state.hideNoise = !elements.hideNoise || elements.hideNoise.checked !== false;
       state.search = elements.search ? elements.search.value || "" : "";
+      state.sortKey = elements.sort ? elements.sort.value || "name_asc" : "name_asc";
+      state.minGroupSize = elements.minGroupSize ? readMinGroupSize(elements.minGroupSize.value) : 1;
       updateSelectedPanel(null);
 
       await ensureManifestLoaded();
@@ -519,6 +566,21 @@
       if (elements.hideNoise) {
         elements.hideNoise.addEventListener("change", () => {
           state.hideNoise = elements.hideNoise.checked !== false;
+          scheduleRender();
+        });
+      }
+      if (elements.sort) {
+        elements.sort.addEventListener("change", () => {
+          state.sortKey = elements.sort.value || "name_asc";
+          scheduleRender();
+        });
+      }
+      if (elements.minGroupSize) {
+        elements.minGroupSize.addEventListener("input", () => {
+          state.minGroupSize = readMinGroupSize(elements.minGroupSize.value);
+          if (String(state.minGroupSize) !== String(elements.minGroupSize.value || "")) {
+            elements.minGroupSize.value = String(state.minGroupSize);
+          }
           scheduleRender();
         });
       }
