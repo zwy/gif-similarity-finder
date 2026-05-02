@@ -349,5 +349,13 @@ class DashboardUiTest(unittest.TestCase):
         self.assertIn("unavailable", runtime["selectedPanelText"].lower())
 
 
+class DashboardReadmeDocsTest(unittest.TestCase):
+    def test_readme_documents_dashboard_entry_and_not_legacy_reports(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("dashboard/index.html", readme)
+        self.assertNotIn("report_stage1_same_source.html", readme)
+        self.assertNotIn("report_stage2_action_clusters.html", readme)
+
+
 if __name__ == "__main__":
     unittest.main()
