@@ -1,5 +1,6 @@
 from dataclasses import dataclass, asdict
 from pathlib import Path
+import re
 import hashlib
 from typing import List
 
@@ -91,7 +92,9 @@ def split_stage_items(stage: DashboardStage, shard_size: int) -> list[DashboardS
     for i in range(0, len(items), shard_size):
         chunk = items[i : i + shard_size]
         idx = i // shard_size
-        file_name = f"dashboard_{stage.stage_key}_{idx:03d}.js"
+        m = re.match(r"(stage\d+)", stage.stage_key)
+        family = m.group(1) if m else stage.stage_key
+        file_name = f"dashboard_{family}_{idx:03d}.js"
         shards.append(DashboardShard(file_name=file_name, items=chunk))
     return shards
 

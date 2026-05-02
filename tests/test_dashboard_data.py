@@ -36,12 +36,12 @@ class TestDashboardData(unittest.TestCase):
 
     def test_split_stage_items_shards(self):
         groups = {"g1": [f"/gifs/{i}.gif" for i in range(5)]}
-        stage = dd.build_dashboard_stage("s", groups, preview_dir_name="previews")
+        stage = dd.build_dashboard_stage("stage1_same_source", groups, preview_dir_name="previews")
         shards = dd.split_stage_items(stage, shard_size=2)
         # expect 3 shards: 2,2,1
         self.assertEqual([len(s.items) for s in shards], [2,2,1])
-        # filenames deterministic and include stage key
-        expected_names = ["dashboard_s_000.js", "dashboard_s_001.js", "dashboard_s_002.js"]
+        # filenames use fixed stage family mapping (stage1)
+        expected_names = ["dashboard_stage1_000.js", "dashboard_stage1_001.js", "dashboard_stage1_002.js"]
         self.assertEqual([s.file_name for s in shards], expected_names)
 
 if __name__ == '__main__':
