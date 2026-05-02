@@ -37,6 +37,7 @@ def _persist_dashboard_stage_artifacts(
     output_dir: Path,
     stage: object,
     saved_preview_targets: set[tuple[str, str]],
+    preview_failures: list[dict],
 ) -> None:
     for item in stage.items:
         gif_path = Path(item.gif_path)
@@ -44,8 +45,22 @@ def _persist_dashboard_stage_artifacts(
         dedupe_key = (str(gif_path), str(preview_path))
         if dedupe_key in saved_preview_targets:
             continue
+        failure_reason = None
         if gif_path.exists():
-            save_preview_image(gif_path, preview_path)
+            if save_preview_image(gif_path, preview_path) is None:
+                failure_reason = "preview_generation_failed"
+        else:
+            failure_reason = "missing_source_gif"
+        if failure_reason:
+            preview_failures.append(
+                {
+                    "stage": stage.stage_key,
+                    "item_id": item.id,
+                    "gif_path": str(gif_path),
+                    "preview_path": str(preview_path),
+                    "reason": failure_reason,
+                }
+            )
         saved_preview_targets.add(dedupe_key)
 
     shards = split_stage_items(stage, shard_size=1000)
@@ -65,6 +80,7 @@ def run_pipeline(config: PipelineConfig) -> None:
 
     dashboard_stages = []
     saved_preview_targets: set[tuple[str, str]] = set()
+    preview_failures: list[dict] = []
     if not config.skip_stage1:
         stage1_result = run_stage1(gif_paths, hash_threshold=config.hash_threshold)
         save_group_json(config.output_dir / "stage1_same_source_groups.json", stage1_result.groups)
@@ -74,6 +90,7 @@ def run_pipeline(config: PipelineConfig) -> None:
             config.output_dir,
             stage1_dashboard,
             saved_preview_targets,
+            preview_failures,
         )
     else:
         log.info("Stage 1 skipped.")
@@ -96,6 +113,7 @@ def run_pipeline(config: PipelineConfig) -> None:
             config.output_dir,
             stage2_dashboard,
             saved_preview_targets,
+            preview_failures,
         )
         if stage2_result.valid_paths:
             save_embedding_cache(
@@ -107,14 +125,30 @@ def run_pipeline(config: PipelineConfig) -> None:
     else:
         log.info("Stage 2 skipped.")
 
-    manifest = build_dashboard_manifest(
-        config.output_dir,
-        dashboard_stages,
-        preview_config={
+    manifest_kwargs = {
+        "preview_config": {
             "dir": "previews",
             "format": "webp",
             "kind": "first_frame",
             "size": {"width": PREVIEW_SIZE[0], "height": PREVIEW_SIZE[1]},
-        },
+        }
+    }
+    if preview_failures:
+        failure_count = len(preview_failures)
+        manifest_kwargs["warnings"] = [
+            f"Warning: failed to generate {failure_count} preview image(s); some cards may show 'Preview unavailable'."
+        ]
+        manifest_kwargs["warning_details"] = [
+            {
+                "kind": "preview_generation_failed",
+                "count": failure_count,
+                "items": preview_failures,
+            }
+        ]
+
+    manifest = build_dashboard_manifest(
+        config.output_dir,
+        dashboard_stages,
+        **manifest_kwargs,
     )
     save_dashboard_manifest(config.output_dir / "dashboard_manifest.js", manifest)

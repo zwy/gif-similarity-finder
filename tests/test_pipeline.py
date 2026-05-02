@@ -590,6 +590,42 @@ class PipelineOrchestrationTest(unittest.TestCase):
         )
         save_dashboard_manifest_mock.assert_not_called()
 
+    def test_run_pipeline_includes_preview_generation_failures_in_manifest_warnings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = self.make_config(tmp_dir, skip_stage2=True)
+            gif_a = Path(tmp_dir) / "a.gif"
+            gif_a.write_bytes(b"GIF89a")
+            gif_paths = [gif_a]
+            stage1_result = Stage1Result(groups={0: [str(gif_a)]}, hashed_paths=gif_paths, match_count=1)
+            stage1_dashboard = self.make_stage("stage1_same_source", [gif_a])
+            stage1_shard = DashboardShard(file_name="dashboard_stage1_000.js", items=stage1_dashboard.items)
+            manifest_payload = {"stage1_same_source": {"shards": []}}
+
+            with mock.patch("gif_similarity_finder.pipeline.collect_gifs", return_value=gif_paths), mock.patch(
+                "gif_similarity_finder.pipeline.run_stage1", return_value=stage1_result
+            ), mock.patch("gif_similarity_finder.pipeline.save_group_json"), mock.patch(
+                "gif_similarity_finder.pipeline.build_dashboard_stage", return_value=stage1_dashboard
+            ), mock.patch(
+                "gif_similarity_finder.pipeline.split_stage_items", return_value=[stage1_shard]
+            ), mock.patch(
+                "gif_similarity_finder.pipeline.save_preview_image", return_value=None
+            ), mock.patch(
+                "gif_similarity_finder.pipeline.save_dashboard_stage_shard"
+            ), mock.patch(
+                "gif_similarity_finder.pipeline.build_dashboard_manifest", return_value=manifest_payload
+            ) as build_dashboard_manifest_mock, mock.patch(
+                "gif_similarity_finder.pipeline.save_dashboard_manifest"
+            ):
+                run_pipeline(config)
+
+        _, _, kwargs = build_dashboard_manifest_mock.mock_calls[0]
+        self.assertIn("warnings", kwargs)
+        self.assertIn("warning_details", kwargs)
+        self.assertIn("failed to generate 1 preview image", kwargs["warnings"][0].lower())
+        self.assertEqual(kwargs["warning_details"][0]["kind"], "preview_generation_failed")
+        self.assertEqual(kwargs["warning_details"][0]["count"], 1)
+        self.assertEqual(kwargs["warning_details"][0]["items"][0]["gif_path"], str(gif_a))
+
 
 if __name__ == "__main__":
     unittest.main()

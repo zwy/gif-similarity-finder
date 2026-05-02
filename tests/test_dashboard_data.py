@@ -107,5 +107,17 @@ class TestDashboardData(unittest.TestCase):
         self.assertEqual(stage_manifest["stage"]["noise_count"], 1)
         self.assertEqual(stage_manifest["stage"]["shard_count"], 1)
 
+    def test_build_dashboard_manifest_includes_warning_details_when_provided(self):
+        stage = dd.build_dashboard_stage("stage1", {"g1": ["/gifs/a.gif"]}, preview_dir_name="previews")
+        warning_details = [{"kind": "preview_generation_failed", "count": 1, "items": [{"gif_path": "/gifs/a.gif"}]}]
+        manifest = dd.build_dashboard_manifest(
+            Path("out"),
+            [stage],
+            warnings=["Warning: failed to generate previews."],
+            warning_details=warning_details,
+        )
+        self.assertEqual(manifest["meta"]["warnings"], ["Warning: failed to generate previews."])
+        self.assertEqual(manifest["meta"]["warning_details"], warning_details)
+
 if __name__ == '__main__':
     unittest.main()

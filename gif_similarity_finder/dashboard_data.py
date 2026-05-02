@@ -123,6 +123,7 @@ def build_dashboard_manifest(
     *,
     preview_config: dict | None = None,
     warnings: list[str] | None = None,
+    warning_details: list[dict] | None = None,
 ) -> dict:
     manifest = {
         "meta": {
@@ -136,6 +137,7 @@ def build_dashboard_manifest(
                 "kind": "first_frame",
             },
             "warnings": warnings or [],
+            "warning_details": warning_details or [],
         }
     }
     for stage in stages:

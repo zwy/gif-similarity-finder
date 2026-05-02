@@ -264,6 +264,16 @@ class DashboardUiTest(unittest.TestCase):
                     if (image && typeof image.onerror === 'function') {
                       image.onerror();
                     }
+                  } else if (action.type === 'preview-error-first-card') {
+                    const cards = cardsForGrid();
+                    const image = cards[0] && cards[0].children[0];
+                    if (image && typeof image.onerror === 'function') {
+                      image.onerror();
+                      if (typeof image.onerror === 'function') {
+                        image.onerror();
+                      }
+                      await flush();
+                    }
                   } else if (action.type === 'click-first-card') {
                     const cards = cardsForGrid();
                     if (cards[0] && cards[0].listeners['click']) {
@@ -291,6 +301,14 @@ class DashboardUiTest(unittest.TestCase):
               runActions().then(() => {
                 const cards = cardsForGrid();
                 const firstImage = cards[0] ? cards[0].children[0] : null;
+                const firstCardUnavailable = cards[0]
+                  ? cards[0].children.find(
+                      (child) =>
+                        child.className &&
+                        child.className.indexOf('dashboard-card-unavailable') !== -1 &&
+                        (!child.className.includes('hidden'))
+                    )
+                  : null;
                 let hover = null;
                 if (cards[0] && cards[0].listeners['mouseenter'] && cards[0].listeners['mouseleave']) {
                   const previewBefore = firstImage.src;
@@ -305,6 +323,7 @@ class DashboardUiTest(unittest.TestCase):
                   cardCount: cards.length,
                   cardLabels: cards.map((card) => (card.children[1] ? card.children[1].textContent : null)),
                   firstCardLabel: cards[0] && cards[0].children[1] ? cards[0].children[1].textContent : null,
+                  firstCardUnavailableText: firstCardUnavailable ? firstCardUnavailable.textContent : '',
                   filteredCount: runtime.getFilteredCount(),
                   visibleCount: runtime.getVisibleCount(),
                   hover,
@@ -489,6 +508,17 @@ class DashboardUiTest(unittest.TestCase):
         self.assertTrue(runtime["hoverPreviewAfterError"].endswith(".webp"))
         self.assertTrue(runtime["selectedImageSrc"].endswith(".webp"))
         self.assertIn("unavailable", runtime["selectedPanelText"].lower())
+
+    def test_preview_load_failure_shows_card_level_unavailable_state(self) -> None:
+        runtime = self._run_runtime(
+            {
+                "stage1Count": 4,
+                "actions": [
+                    {"type": "preview-error-first-card"},
+                ],
+            }
+        )
+        self.assertIn("preview unavailable", runtime["firstCardUnavailableText"].lower())
 
     def test_sort_control_changes_rendered_order(self) -> None:
         stage1_items = [

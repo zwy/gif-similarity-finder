@@ -517,10 +517,22 @@
       }
     }
 
-    function attachCardImageFallback(image, item, onUnavailable) {
+    function attachCardImageFallback(image, item, placeholder, onUnavailable) {
+      const previewSrc = buildPreviewSrc(item);
+      image.dataset.previewAttempted = image.src === previewSrc ? "true" : "false";
       image.onerror = function () {
+        const previewAlreadyAttempted = image.dataset.previewAttempted === "true";
+        if (!previewAlreadyAttempted && previewSrc) {
+          image.dataset.previewAttempted = "true";
+          image.src = previewSrc;
+          return;
+        }
         image.onerror = null;
-        image.src = buildPreviewSrc(item);
+        image.className = "hidden h-32 w-full rounded object-cover";
+        if (placeholder) {
+          placeholder.className = "dashboard-card-unavailable flex h-32 w-full items-center justify-center rounded border border-dashed border-slate-300 bg-slate-100 px-2 text-center text-xs text-slate-600";
+          placeholder.textContent = "Preview unavailable";
+        }
         if (typeof onUnavailable === "function") {
           onUnavailable();
         }
@@ -542,13 +554,23 @@
       label.textContent = escapeText(item.name || item.id);
       card.appendChild(label);
 
+      const unavailable = doc.createElement("p");
+      unavailable.className = "dashboard-card-unavailable hidden h-32 w-full items-center justify-center rounded border border-dashed border-slate-300 bg-slate-100 px-2 text-center text-xs text-slate-600";
+      unavailable.textContent = "Preview unavailable";
+      card.appendChild(unavailable);
+      attachCardImageFallback(image, item, unavailable);
+
       card.addEventListener("mouseenter", () => {
+        image.className = "h-32 w-full rounded object-cover";
+        unavailable.className = "dashboard-card-unavailable hidden h-32 w-full items-center justify-center rounded border border-dashed border-slate-300 bg-slate-100 px-2 text-center text-xs text-slate-600";
         image.src = buildGifSrc(item) || buildPreviewSrc(item);
-        attachCardImageFallback(image, item);
+        attachCardImageFallback(image, item, unavailable);
       });
       card.addEventListener("mouseleave", () => {
+        image.className = "h-32 w-full rounded object-cover";
+        unavailable.className = "dashboard-card-unavailable hidden h-32 w-full items-center justify-center rounded border border-dashed border-slate-300 bg-slate-100 px-2 text-center text-xs text-slate-600";
         image.src = buildPreviewSrc(item);
-        attachCardImageFallback(image, item);
+        attachCardImageFallback(image, item, unavailable);
       });
       card.addEventListener("click", () => {
         state.selectedItem = item;
