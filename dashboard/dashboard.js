@@ -4,7 +4,9 @@
     stage2_action_clusters: "Stage 2 · Action clusters",
   };
   const STAGE_KEYS = ["stage1_same_source", "stage2_action_clusters"];
-  const VISIBLE_SLICE_SIZE = 80;
+  const ROW_HEIGHT_PX = 184;
+  const OVERSCAN_ROWS = 2;
+  const DEFAULT_GRID_COLUMNS = 4;
 
   function createRuntime(overrides) {
     const deps = overrides || {};
@@ -19,9 +21,12 @@
       filteredCount: 0,
       visibleCount: 0,
       selectedItem: null,
+      selectedGifUnavailable: false,
+      renderToken: 0,
     };
     let elements = null;
     let manifestLoadPromise = null;
+    const stageLoadState = {};
 
     function escapeText(value) {
       return String(value == null ? "" : value);
@@ -74,28 +79,63 @@
       }
     }
 
-    async function ensureStageLoaded(stageKey) {
-      if (state.stageItems[stageKey]) {
-        return state.stageItems[stageKey];
+    function getStageLoadState(stageKey) {
+      if (!stageLoadState[stageKey]) {
+        stageLoadState[stageKey] = {
+          items: [],
+          loadedShardCount: 0,
+          fullyLoaded: false,
+          loadingPromise: null,
+        };
       }
+      return stageLoadState[stageKey];
+    }
+
+    async function loadNextShard(stageKey) {
       const stageConfig = getStageManifest(stageKey);
       const shardList = Array.isArray(stageConfig.shards) ? stageConfig.shards : [];
+      const loadState = getStageLoadState(stageKey);
+      if (loadState.loadingPromise) {
+        await loadState.loadingPromise;
+      }
+      if (loadState.loadedShardCount >= shardList.length) {
+        loadState.fullyLoaded = true;
+        state.stageItems[stageKey] = loadState.items;
+        return loadState.items;
+      }
       const shardStore = (win.__GIF_DASHBOARD_STAGE_SHARDS__ = win.__GIF_DASHBOARD_STAGE_SHARDS__ || {});
-      const combined = [];
-      for (let index = 0; index < shardList.length; index += 1) {
-        const shard = shardList[index];
-        const fileName = shard.file_name;
-        const shardKey = stageKey + ":" + fileName;
+      const nextShard = shardList[loadState.loadedShardCount];
+      const fileName = nextShard.file_name;
+      const shardKey = stageKey + ":" + fileName;
+      loadState.loadingPromise = (async function () {
         if (!shardStore[shardKey]) {
           await loadScript("../output/" + fileName);
         }
         const shardItems = shardStore[shardKey] || [];
         for (let itemIndex = 0; itemIndex < shardItems.length; itemIndex += 1) {
-          combined.push(shardItems[itemIndex]);
+          loadState.items.push(shardItems[itemIndex]);
         }
+        loadState.loadedShardCount += 1;
+        loadState.fullyLoaded = loadState.loadedShardCount >= shardList.length;
+        state.stageItems[stageKey] = loadState.items;
+        return loadState.items;
+      })();
+      try {
+        await loadState.loadingPromise;
+      } finally {
+        loadState.loadingPromise = null;
       }
-      state.stageItems[stageKey] = combined;
-      return combined;
+      return loadState.items;
+    }
+
+    async function ensureStageLoaded(stageKey) {
+      if (!state.stageItems[stageKey]) {
+        state.stageItems[stageKey] = getStageLoadState(stageKey).items;
+      }
+      if (!getStageLoadState(stageKey).items.length) {
+        await loadNextShard(stageKey);
+      }
+      return state.stageItems[stageKey];
     }
 
     function updateSelectedPanel(item) {
@@ -115,9 +155,17 @@
         return;
       }
       const image = doc.createElement("img");
-      image.src = buildGifSrc(item) || buildPreviewSrc(item);
+      image.src = state.selectedGifUnavailable ? buildPreviewSrc(item) : (buildGifSrc(item) || buildPreviewSrc(item));
       image.alt = escapeText(item.name || item.id);
       image.className = "mt-3 w-full rounded border border-slate-200";
+      if (!state.selectedGifUnavailable) {
+        image.onerror = function () {
+          state.selectedGifUnavailable = true;
+          image.onerror = null;
+          image.src = buildPreviewSrc(item);
+          updateSelectedPanel(item);
+        };
+      }
       elements.selectedPreview.appendChild(image);
 
       const meta = doc.createElement("p");
@@ -129,6 +177,13 @@
       path.className = "mt-1 break-all text-xs text-slate-500";
       path.textContent = buildGifSrc(item);
       elements.selectedPreview.appendChild(path);
+
+      if (state.selectedGifUnavailable) {
+        const unavailable = doc.createElement("p");
+        unavailable.className = "mt-2 text-xs text-amber-700";
+        unavailable.textContent = "GIF unavailable. Showing static preview.";
+        elements.selectedPreview.appendChild(unavailable);
+      }
     }
 
     function updateSummary() {
@@ -160,10 +215,9 @@
       }
     }
 
-    function filteredItemsForActiveStage() {
-      const items = state.stageItems[state.activeStage] || [];
+    function createItemMatcher() {
       const searchNeedle = state.search.trim().toLowerCase();
-      return items.filter((item) => {
+      return function (item) {
         if (state.hideNoise && item.is_noise) {
           return false;
         }
@@ -179,63 +233,151 @@
           .map((value) => escapeText(value).toLowerCase())
           .join(" ");
         return text.includes(searchNeedle);
-      });
+      };
     }
 
-    function renderGrid() {
+    function filteredItemsForActiveStage() {
+      const items = state.stageItems[state.activeStage] || [];
+      const matcher = createItemMatcher();
+      return items.filter(matcher);
+    }
+
+    function getGridColumns() {
+      if (!elements.grid) {
+        return DEFAULT_GRID_COLUMNS;
+      }
+      const configured = Number(elements.grid.dataset.virtualColumns || DEFAULT_GRID_COLUMNS);
+      if (!Number.isFinite(configured) || configured < 1) {
+        return DEFAULT_GRID_COLUMNS;
+      }
+      return Math.floor(configured);
+    }
+
+    function getVirtualWindow(totalItems) {
+      const columns = getGridColumns();
+      const clientHeight = (elements.grid && elements.grid.clientHeight) || (ROW_HEIGHT_PX * 4);
+      const scrollTop = (elements.grid && elements.grid.scrollTop) || 0;
+      const totalRows = Math.ceil(totalItems / columns);
+      const firstVisibleRow = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT_PX));
+      const startRow = Math.max(0, firstVisibleRow - OVERSCAN_ROWS);
+      const visibleRows = Math.ceil(clientHeight / ROW_HEIGHT_PX) + (OVERSCAN_ROWS * 2);
+      const endRow = Math.min(totalRows, startRow + visibleRows);
+      const startIndex = Math.min(totalItems, startRow * columns);
+      const endIndex = Math.min(totalItems, endRow * columns);
+      return { columns, startRow, endRow, totalRows, startIndex, endIndex };
+    }
+
+    async function ensureItemsAvailableForWindow(windowEndIndex, matcher) {
+      const loadState = getStageLoadState(state.activeStage);
+      while (true) {
+        const filteredCount = loadState.items.filter(matcher).length;
+        if (filteredCount > windowEndIndex || loadState.fullyLoaded) {
+          state.stageItems[state.activeStage] = loadState.items;
+          return;
+        }
+        await loadNextShard(state.activeStage);
+      }
+    }
+
+    function attachCardImageFallback(image, item, onUnavailable) {
+      image.onerror = function () {
+        image.onerror = null;
+        image.src = buildPreviewSrc(item);
+        if (typeof onUnavailable === "function") {
+          onUnavailable();
+        }
+      };
+    }
+
+    function renderCard(item) {
+      const card = doc.createElement("article");
+      card.className = "dashboard-card";
+
+      const image = doc.createElement("img");
+      image.className = "h-32 w-full rounded object-cover";
+      image.src = buildPreviewSrc(item);
+      image.alt = escapeText(item.name || item.id);
+      card.appendChild(image);
+
+      const label = doc.createElement("p");
+      label.className = "mt-2 truncate text-sm text-slate-700";
+      label.textContent = escapeText(item.name || item.id);
+      card.appendChild(label);
+
+      card.addEventListener("mouseenter", () => {
+        image.src = buildGifSrc(item) || buildPreviewSrc(item);
+        attachCardImageFallback(image, item);
+      });
+      card.addEventListener("mouseleave", () => {
+        image.src = buildPreviewSrc(item);
+        attachCardImageFallback(image, item);
+      });
+      card.addEventListener("click", () => {
+        state.selectedItem = item;
+        state.selectedGifUnavailable = false;
+        updateSelectedPanel(item);
+      });
+      return card;
+    }
+
+    function createSpacer(heightPx) {
+      const spacer = doc.createElement("div");
+      spacer.className = "dashboard-spacer col-span-full";
+      spacer.style.height = Math.max(0, heightPx) + "px";
+      return spacer;
+    }
+
+    async function renderGrid() {
       if (!elements.grid) {
         return;
       }
+      const renderToken = ++state.renderToken;
+      const matcher = createItemMatcher();
+      const columns = getGridColumns();
+      const clientHeight = elements.grid.clientHeight || (ROW_HEIGHT_PX * 4);
+      const scrollTop = elements.grid.scrollTop || 0;
+      const firstVisibleRow = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT_PX));
+      const targetEndRow = firstVisibleRow + Math.ceil(clientHeight / ROW_HEIGHT_PX) + (OVERSCAN_ROWS * 2);
+      const targetEndIndex = targetEndRow * columns;
+      await ensureItemsAvailableForWindow(targetEndIndex, matcher);
+      if (renderToken !== state.renderToken) {
+        return;
+      }
       const filtered = filteredItemsForActiveStage();
-      const visible = filtered.slice(0, VISIBLE_SLICE_SIZE);
+      const window = getVirtualWindow(filtered.length);
+      const visible = filtered.slice(window.startIndex, window.endIndex);
       state.filteredCount = filtered.length;
       state.visibleCount = visible.length;
       elements.grid.innerHTML = "";
 
+      elements.grid.appendChild(createSpacer(window.startRow * ROW_HEIGHT_PX));
       for (let index = 0; index < visible.length; index += 1) {
-        const item = visible[index];
-        const card = doc.createElement("article");
-        card.className = "dashboard-card";
-
-        const image = doc.createElement("img");
-        image.className = "h-32 w-full rounded object-cover";
-        image.src = buildPreviewSrc(item);
-        image.alt = escapeText(item.name || item.id);
-        card.appendChild(image);
-
-        const label = doc.createElement("p");
-        label.className = "mt-2 truncate text-sm text-slate-700";
-        label.textContent = escapeText(item.name || item.id);
-        card.appendChild(label);
-
-        card.addEventListener("mouseenter", () => {
-          image.src = buildGifSrc(item) || buildPreviewSrc(item);
-        });
-        card.addEventListener("mouseleave", () => {
-          image.src = buildPreviewSrc(item);
-        });
-        card.addEventListener("click", () => {
-          state.selectedItem = item;
-          updateSelectedPanel(item);
-        });
-        elements.grid.appendChild(card);
+        elements.grid.appendChild(renderCard(visible[index]));
       }
-
-      const spacer = doc.createElement("div");
-      spacer.className = "dashboard-spacer col-span-full h-1";
-      elements.grid.appendChild(spacer);
+      elements.grid.appendChild(createSpacer((window.totalRows - window.endRow) * ROW_HEIGHT_PX));
 
       if (state.selectedItem) {
         updateSelectedPanel(state.selectedItem);
       }
     }
 
+    function scheduleRender() {
+      renderGrid().catch((error) => {
+        console.error(error);
+      });
+    }
+
     async function setStage(stageKey) {
       state.activeStage = stageKey;
+      state.selectedItem = null;
+      state.selectedGifUnavailable = false;
+      if (elements && elements.grid) {
+        elements.grid.scrollTop = 0;
+      }
       await ensureStageLoaded(stageKey);
       updateTabStyles();
       updateSummary();
-      renderGrid();
+      scheduleRender();
     }
 
     async function init() {
@@ -261,13 +403,18 @@
       if (elements.search) {
         elements.search.addEventListener("input", () => {
           state.search = elements.search.value || "";
-          renderGrid();
+          scheduleRender();
         });
       }
       if (elements.hideNoise) {
         elements.hideNoise.addEventListener("change", () => {
           state.hideNoise = elements.hideNoise.checked !== false;
-          renderGrid();
+          scheduleRender();
+        });
+      }
+      if (elements.grid) {
+        elements.grid.addEventListener("scroll", () => {
+          scheduleRender();
         });
       }
       STAGE_KEYS.forEach((stageKey) => {

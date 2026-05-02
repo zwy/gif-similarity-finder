@@ -39,6 +39,8 @@ class DashboardUiTest(unittest.TestCase):
                 attributes: {},
                 children: [],
                 listeners: {},
+                scrollTop: 0,
+                clientHeight: 736,
                 appendChild(child) { this.children.push(child); return child; },
                 addEventListener(type, handler) { this.listeners[type] = handler; },
                 setAttribute(name, value) { this.attributes[name] = String(value); },
@@ -64,6 +66,7 @@ class DashboardUiTest(unittest.TestCase):
 
             elements['dashboard-hide-noise'].checked = config.hideNoise !== false;
             elements['dashboard-search'].value = config.search || '';
+            elements['dashboard-grid'].clientHeight = config.gridClientHeight || 736;
 
             const document = {
               readyState: 'complete',
@@ -123,26 +126,33 @@ class DashboardUiTest(unittest.TestCase):
 
             const stage1Items = config.stage1Items || makeItems('stage1', stage1Count, config.includeNoise);
             const stage2Items = config.stage2Items || makeItems('stage2', stage2Count, false);
+            const stage1Shards = config.stage1Shards || [{ file_name: 'dashboard_stage1_000.js', items: stage1Items }];
+            const stage2Shards = config.stage2Shards || [{ file_name: 'dashboard_stage2_000.js', items: stage2Items }];
             const manifest = {
               stage1_same_source: {
                 summary: { total_items: stage1Items.length, total_groups: 1, grouped_items: stage1Items.length, noise_items: 0, largest_group_size: 4 },
-                shards: [{ file_name: 'dashboard_stage1_000.js', size: stage1Items.length }],
+                shards: stage1Shards.map((shard) => ({ file_name: shard.file_name, size: shard.items.length })),
               },
               stage2_action_clusters: {
                 summary: { total_items: stage2Items.length, total_groups: 1, grouped_items: stage2Items.length, noise_items: 0, largest_group_size: 4 },
-                shards: [{ file_name: 'dashboard_stage2_000.js', size: stage2Items.length }],
+                shards: stage2Shards.map((shard) => ({ file_name: shard.file_name, size: shard.items.length })),
               },
             };
 
-            const shardMap = {
-              'stage1_same_source:dashboard_stage1_000.js': stage1Items,
-              'stage2_action_clusters:dashboard_stage2_000.js': stage2Items,
-            };
+            const shardMap = {};
+            for (const shard of stage1Shards) {
+              shardMap[`stage1_same_source:${shard.file_name}`] = shard.items;
+            }
+            for (const shard of stage2Shards) {
+              shardMap[`stage2_action_clusters:${shard.file_name}`] = shard.items;
+            }
+            const loadCalls = [];
 
             const runtime = context.window.GifDashboard.createRuntime({
               window: context.window,
               document,
               loadScript: async (src) => {
+                loadCalls.push(src);
                 if (src.includes('dashboard_manifest.js')) {
                   context.window.__GIF_DASHBOARD_MANIFEST__ = manifest;
                   return;
@@ -159,24 +169,89 @@ class DashboardUiTest(unittest.TestCase):
             });
 
             runtime.init().then(() => {
-              const cards = elements['dashboard-grid'].children.filter((child) => child.className === 'dashboard-card');
-              const firstImage = cards[0] ? cards[0].children[0] : null;
-              let hover = null;
-              if (cards[0] && cards[0].listeners['mouseenter'] && cards[0].listeners['mouseleave']) {
-                const previewBefore = firstImage.src;
-                cards[0].listeners['mouseenter']();
-                const gifSrc = firstImage.src;
-                cards[0].listeners['mouseleave']();
-                const previewAfter = firstImage.src;
-                hover = { previewBefore, gifSrc, previewAfter };
-              }
-              process.stdout.write(JSON.stringify({
-                cardCount: cards.length,
-                filteredCount: runtime.getFilteredCount(),
-                visibleCount: runtime.getVisibleCount(),
-                hover,
-                selectedPanelText: elements['selected-preview'].textContent,
-              }));
+              const flush = async () => {
+                await Promise.resolve();
+                await Promise.resolve();
+              };
+              const cardsForGrid = () => elements['dashboard-grid'].children.filter((child) => child.className === 'dashboard-card');
+              const runActions = async () => {
+                const actions = config.actions || [];
+                for (const action of actions) {
+                  if (action.type === 'scroll') {
+                    elements['dashboard-grid'].scrollTop = action.scrollTop || 0;
+                    if (elements['dashboard-grid'].listeners['scroll']) {
+                      elements['dashboard-grid'].listeners['scroll']();
+                      await flush();
+                    }
+                  } else if (action.type === 'search') {
+                    elements['dashboard-search'].value = action.value || '';
+                    if (elements['dashboard-search'].listeners['input']) {
+                      elements['dashboard-search'].listeners['input']();
+                      await flush();
+                    }
+                  } else if (action.type === 'hover-first-card') {
+                    const cards = cardsForGrid();
+                    if (cards[0] && cards[0].listeners['mouseenter']) {
+                      cards[0].listeners['mouseenter']();
+                    }
+                  } else if (action.type === 'leave-first-card') {
+                    const cards = cardsForGrid();
+                    if (cards[0] && cards[0].listeners['mouseleave']) {
+                      cards[0].listeners['mouseleave']();
+                    }
+                  } else if (action.type === 'hover-error-first-card') {
+                    const cards = cardsForGrid();
+                    const image = cards[0] && cards[0].children[0];
+                    if (cards[0] && cards[0].listeners['mouseenter']) {
+                      cards[0].listeners['mouseenter']();
+                    }
+                    if (image && typeof image.onerror === 'function') {
+                      image.onerror();
+                    }
+                  } else if (action.type === 'click-first-card') {
+                    const cards = cardsForGrid();
+                    if (cards[0] && cards[0].listeners['click']) {
+                      cards[0].listeners['click']();
+                      await flush();
+                    }
+                  } else if (action.type === 'selected-preview-error') {
+                    const selectedImage = elements['selected-preview'].children.find((child) => child.tagName === 'img');
+                    if (selectedImage && typeof selectedImage.onerror === 'function') {
+                      selectedImage.onerror();
+                      await flush();
+                    }
+                  }
+                }
+              };
+
+              runActions().then(() => {
+                const cards = cardsForGrid();
+                const firstImage = cards[0] ? cards[0].children[0] : null;
+                let hover = null;
+                if (cards[0] && cards[0].listeners['mouseenter'] && cards[0].listeners['mouseleave']) {
+                  const previewBefore = firstImage.src;
+                  cards[0].listeners['mouseenter']();
+                  const gifSrc = firstImage.src;
+                  cards[0].listeners['mouseleave']();
+                  const previewAfter = firstImage.src;
+                  hover = { previewBefore, gifSrc, previewAfter };
+                }
+                const selectedImage = elements['selected-preview'].children.find((child) => child.tagName === 'img');
+                process.stdout.write(JSON.stringify({
+                  cardCount: cards.length,
+                  firstCardLabel: cards[0] && cards[0].children[1] ? cards[0].children[1].textContent : null,
+                  filteredCount: runtime.getFilteredCount(),
+                  visibleCount: runtime.getVisibleCount(),
+                  hover,
+                  hoverPreviewAfterError: firstImage ? firstImage.src : null,
+                  selectedImageSrc: selectedImage ? selectedImage.src : null,
+                  selectedPanelText: elements['selected-preview'].children.map((child) => child.textContent || '').join(' '),
+                  loadCalls,
+                }));
+              }).catch((error) => {
+                console.error(error);
+                process.exit(1);
+              });
             }).catch((error) => {
               console.error(error);
               process.exit(1);
@@ -215,6 +290,63 @@ class DashboardUiTest(unittest.TestCase):
         self.assertGreater(runtime["visibleCount"], 0)
         self.assertLess(runtime["visibleCount"], runtime["filteredCount"])
         self.assertEqual(runtime["cardCount"], runtime["visibleCount"])
+
+    def test_virtualization_window_advances_when_scrolling(self) -> None:
+        runtime = self._run_runtime(
+            {
+                "stage1Count": 260,
+                "actions": [{"type": "scroll", "scrollTop": 9200}],
+            }
+        )
+        self.assertNotEqual(runtime["firstCardLabel"], "stage1 0")
+
+    def test_stage_shards_load_incrementally_on_demand(self) -> None:
+        def shard(name: str, start: int, count: int) -> dict:
+            items = [
+                {
+                    "id": f"stage1-{index}",
+                    "name": f"stage1 {index}",
+                    "gif_path": f"/stage1-{index}.gif",
+                    "preview_path": f"previews/stage1-{index}.webp",
+                    "group_id": "10",
+                    "group_size": 4,
+                    "is_noise": False,
+                    "stage": "stage1_same_source",
+                }
+                for index in range(start, start + count)
+            ]
+            return {"file_name": name, "items": items}
+
+        config = {
+            "stage1Count": 120,
+            "stage1Shards": [
+                shard("dashboard_stage1_000.js", 0, 40),
+                shard("dashboard_stage1_001.js", 40, 40),
+                shard("dashboard_stage1_002.js", 80, 40),
+            ],
+        }
+        initial = self._run_runtime(config)
+        initial_stage1_loads = [src for src in initial["loadCalls"] if "dashboard_stage1_" in src]
+        self.assertEqual(initial_stage1_loads, ["../output/dashboard_stage1_000.js"])
+
+        after_scroll = self._run_runtime({**config, "actions": [{"type": "scroll", "scrollTop": 5200}]})
+        post_scroll_stage1_loads = [src for src in after_scroll["loadCalls"] if "dashboard_stage1_" in src]
+        self.assertGreaterEqual(len(post_scroll_stage1_loads), 2)
+
+    def test_gif_load_failures_fall_back_to_preview(self) -> None:
+        runtime = self._run_runtime(
+            {
+                "stage1Count": 4,
+                "actions": [
+                    {"type": "hover-error-first-card"},
+                    {"type": "click-first-card"},
+                    {"type": "selected-preview-error"},
+                ],
+            }
+        )
+        self.assertTrue(runtime["hoverPreviewAfterError"].endswith(".webp"))
+        self.assertTrue(runtime["selectedImageSrc"].endswith(".webp"))
+        self.assertIn("unavailable", runtime["selectedPanelText"].lower())
 
 
 if __name__ == "__main__":

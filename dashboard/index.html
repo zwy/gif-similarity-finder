@@ -25,7 +25,7 @@
           <button id="stage-tab-stage1_same_source" data-stage="stage1_same_source" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium">Stage 1: Same Source</button>
           <button id="stage-tab-stage2_action_clusters" data-stage="stage2_action_clusters" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium">Stage 2: Action Clusters</button>
         </section>
-        <section id="dashboard-grid" class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4"></section>
+        <section id="dashboard-grid" data-virtual-columns="4" class="grid max-h-[70vh] grid-cols-2 gap-3 overflow-y-auto pr-1 md:grid-cols-3 xl:grid-cols-4"></section>
       </main>
       <aside id="selected-preview" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 class="text-base font-semibold">Selected Item</h2>
