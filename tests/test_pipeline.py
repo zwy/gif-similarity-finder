@@ -18,6 +18,31 @@ from gif_similarity_finder.types import (
 
 
 class CliTest(unittest.TestCase):
+    def test_resolve_output_dir_defaults_to_repo_output(self) -> None:
+        expected = Path(gif_similarity.__file__).resolve().parent / "output"
+        self.assertEqual(gif_similarity.resolve_output_dir(None), expected)
+
+    def test_main_uses_repo_local_output_when_cli_omits_output(self) -> None:
+        args = Namespace(
+            input="input",
+            output=None,
+            frames=8,
+            hash_thresh=10,
+            min_cluster=3,
+            batch_size=32,
+            device="auto",
+            skip_stage1=False,
+            skip_stage2=True,
+        )
+
+        with mock.patch("gif_similarity.parse_args", return_value=args), mock.patch(
+            "gif_similarity.run_pipeline"
+        ) as run_pipeline_mock:
+            gif_similarity.main()
+
+        config = run_pipeline_mock.call_args.args[0]
+        self.assertEqual(config.output_dir, Path(gif_similarity.__file__).resolve().parent / "output")
+
     def test_main_builds_pipeline_config_and_calls_pipeline(self) -> None:
         args = Namespace(
             input="input",

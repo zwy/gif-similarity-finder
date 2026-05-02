@@ -17,10 +17,16 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
+def resolve_output_dir(output_arg: str | None) -> Path:
+    if output_arg:
+        return Path(output_arg)
+    return Path(__file__).resolve().parent / "output"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="GIF Similarity Finder — same-source + action/scene clustering")
     parser.add_argument("--input", required=True, help="Folder containing GIF files")
-    parser.add_argument("--output", default="./output", help="Output directory")
+    parser.add_argument("--output", default=None, help="Output directory")
     parser.add_argument("--frames", type=int, default=8, help="Frames to sample per GIF for CLIP")
     parser.add_argument(
         "--hash_thresh",
@@ -45,7 +51,7 @@ def main() -> None:
     args = parse_args()
     config = PipelineConfig(
         input_dir=Path(args.input),
-        output_dir=Path(args.output),
+        output_dir=resolve_output_dir(args.output),
         frames=args.frames,
         hash_threshold=args.hash_thresh,
         min_cluster_size=args.min_cluster,
