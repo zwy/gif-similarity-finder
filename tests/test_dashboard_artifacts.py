@@ -27,6 +27,7 @@ class DashboardArtifactsTest(unittest.TestCase):
             self.assertIsNotNone(out)
             self.assertTrue(out.exists())
             self.assertEqual(out.suffix, ".webp")
+            self.assertEqual(out, preview_path)
 
     def test_save_dashboard_manifest_writes_js_assignment(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -59,6 +60,25 @@ class DashboardArtifactsTest(unittest.TestCase):
             payload = content[idx + len(marker):].strip().rstrip(";\n")
             data = json.loads(payload)
             self.assertEqual(data, items)
+
+    def test_save_dashboard_stage_shard_repeated_writes_do_not_duplicate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp = Path(tmp_dir)
+            items1 = [{"id": "a"}]
+            items2 = [{"id": "b"}]
+            shard = tmp / "shard1.js"
+            save_dashboard_stage_shard(shard, "stageA", items1)
+            save_dashboard_stage_shard(shard, "stageA", items2)
+            content = shard.read_text(encoding="utf-8")
+            expected_key = "stageA:shard1.js"
+            marker = expected_key + "'] = "
+            # ensure only one assignment block for this shard key
+            self.assertEqual(content.count(marker), 1)
+            # payload reflects last write
+            idx = content.find(marker)
+            payload = content[idx + len(marker):].strip().rstrip(";\n")
+            data = json.loads(payload)
+            self.assertEqual(data, items2)
 
 
 if __name__ == "__main__":

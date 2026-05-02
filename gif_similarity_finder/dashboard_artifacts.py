@@ -47,7 +47,7 @@ def save_dashboard_stage_shard(path: Path, stage_key: str, items: List[dict]) ->
         + json.dumps(items, ensure_ascii=False)
         + ";\n"
     )
-    # Append if file exists to avoid clobbering other shards
-    with path.open("a", encoding="utf-8") as fh:
+    # Overwrite shard file content to avoid duplicate assignment blocks when rewritten
+    with path.open("w", encoding="utf-8") as fh:
         fh.write(content)
     return path
