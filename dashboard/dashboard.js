@@ -12,8 +12,10 @@
     const deps = overrides || {};
     const win = deps.window || window;
     const doc = deps.document || document;
+    const DEFAULT_OUTPUT_BASE = "../output";
     const state = {
       manifest: null,
+      manifestMeta: {},
       activeStage: "stage1_same_source",
       stageItems: {},
       hideNoise: true,
@@ -32,12 +34,74 @@
       return String(value == null ? "" : value);
     }
 
+    function trimTrailingSlash(path) {
+      return String(path || "").replace(/\/+$/, "");
+    }
+
+    function isAbsolutePathOrUrl(path) {
+      return /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(path) || path.startsWith("//") || path.startsWith("/");
+    }
+
+    function joinPath(basePath, relativePath) {
+      const normalizedBase = trimTrailingSlash(basePath);
+      const normalizedRelative = String(relativePath || "").replace(/^\/+/, "");
+      if (!normalizedBase) {
+        return normalizedRelative;
+      }
+      if (!normalizedRelative) {
+        return normalizedBase;
+      }
+      return normalizedBase + "/" + normalizedRelative;
+    }
+
+    function resolveOutputBasePath() {
+      if (typeof deps.outputBasePath === "string" && deps.outputBasePath.trim()) {
+        return trimTrailingSlash(deps.outputBasePath.trim()) || DEFAULT_OUTPUT_BASE;
+      }
+      try {
+        const search = (win.location && win.location.search) || "";
+        const ParamParser =
+          (win && win.URLSearchParams) || (typeof URLSearchParams !== "undefined" ? URLSearchParams : null);
+        let outputParam = null;
+        if (ParamParser) {
+          const params = new ParamParser(search);
+          outputParam = params.get("output");
+        }
+        if (outputParam && outputParam.trim()) {
+          return trimTrailingSlash(outputParam.trim()) || DEFAULT_OUTPUT_BASE;
+        }
+      } catch (error) {
+      }
+      return DEFAULT_OUTPUT_BASE;
+    }
+
+    const outputBasePath = resolveOutputBasePath();
+
+    function resolveOutputAssetPath(path) {
+      const assetPath = escapeText(path || "");
+      if (!assetPath) {
+        return "";
+      }
+      if (isAbsolutePathOrUrl(assetPath)) {
+        return assetPath;
+      }
+      return joinPath(outputBasePath, assetPath);
+    }
+
     function buildPreviewSrc(item) {
-      return "../output/" + escapeText(item.preview_path || "");
+      return resolveOutputAssetPath(item.preview_path || "");
     }
 
     function buildGifSrc(item) {
-      return escapeText(item.gif_path || "");
+      const gifPath = escapeText(item.gif_path || "");
+      if (!gifPath || isAbsolutePathOrUrl(gifPath)) {
+        return gifPath;
+      }
+      const manifestOutputDir = escapeText(state.manifestMeta.output_dir || "");
+      if (manifestOutputDir) {
+        return joinPath(manifestOutputDir, gifPath);
+      }
+      return gifPath;
     }
 
     function getStageManifest(stageKey) {
@@ -67,10 +131,11 @@
         return;
       }
       if (!manifestLoadPromise) {
-        manifestLoadPromise = Promise.resolve(loadScript("../output/dashboard_manifest.js"));
+        manifestLoadPromise = Promise.resolve(loadScript(resolveOutputAssetPath("dashboard_manifest.js")));
       }
       await manifestLoadPromise;
       state.manifest = win.__GIF_DASHBOARD_MANIFEST__ || {};
+      state.manifestMeta = state.manifest.meta || {};
       if (!state.manifest[state.activeStage]) {
         const firstKnownStage = STAGE_KEYS.find((key) => state.manifest[key]);
         if (firstKnownStage) {
@@ -109,7 +174,7 @@
       const shardKey = stageKey + ":" + fileName;
       loadState.loadingPromise = (async function () {
         if (!shardStore[shardKey]) {
-          await loadScript("../output/" + fileName);
+          await loadScript(resolveOutputAssetPath(fileName));
         }
         const shardItems = shardStore[shardKey] || [];
         for (let itemIndex = 0; itemIndex < shardItems.length; itemIndex += 1) {

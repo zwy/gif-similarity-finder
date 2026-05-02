@@ -100,7 +100,11 @@ def split_stage_items(stage: DashboardStage, shard_size: int) -> list[DashboardS
 
 
 def build_dashboard_manifest(output_dir: Path, stages: list[DashboardStage]) -> dict:
-    manifest = {}
+    manifest = {
+        "meta": {
+            "output_dir": str(output_dir.resolve()),
+        }
+    }
     for stage in stages:
         shards = split_stage_items(stage, shard_size=1000)
         manifest[stage.stage_key] = {

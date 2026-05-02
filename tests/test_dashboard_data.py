@@ -55,6 +55,8 @@ class TestDashboardData(unittest.TestCase):
         import json
         json.dumps(manifest)  # should not raise
         # check shard list and summary values
+        self.assertIn("meta", manifest)
+        self.assertIn("output_dir", manifest["meta"])
         self.assertIn("stage1", manifest)
         self.assertEqual(manifest["stage1"]["summary"]["total_items"], 3)
         self.assertEqual(len(manifest["stage1"]["shards"]), 1)

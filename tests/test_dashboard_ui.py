@@ -87,6 +87,10 @@ class DashboardUiTest(unittest.TestCase):
             const windowObject = {
               console,
               document,
+              location: {
+                search: config.locationSearch || '',
+              },
+              URLSearchParams,
               __GIF_DASHBOARD_STAGE_SHARDS__: {},
             };
             windowObject.window = windowObject;
@@ -100,6 +104,7 @@ class DashboardUiTest(unittest.TestCase):
               Promise,
               setTimeout,
               clearTimeout,
+              URLSearchParams,
             };
             context.globalThis = context.window;
             vm.createContext(context);
@@ -128,7 +133,9 @@ class DashboardUiTest(unittest.TestCase):
             const stage2Items = config.stage2Items || makeItems('stage2', stage2Count, false);
             const stage1Shards = config.stage1Shards || [{ file_name: 'dashboard_stage1_000.js', items: stage1Items }];
             const stage2Shards = config.stage2Shards || [{ file_name: 'dashboard_stage2_000.js', items: stage2Items }];
+            const manifestMeta = config.manifestMeta || {};
             const manifest = {
+              ...(Object.keys(manifestMeta).length ? { meta: manifestMeta } : {}),
               stage1_same_source: {
                 summary: { total_items: stage1Items.length, total_groups: 1, grouped_items: stage1Items.length, noise_items: 0, largest_group_size: 4 },
                 shards: stage1Shards.map((shard) => ({ file_name: shard.file_name, size: shard.items.length })),
@@ -284,6 +291,34 @@ class DashboardUiTest(unittest.TestCase):
         self.assertTrue(runtime["hover"]["previewBefore"].endswith(".webp"))
         self.assertTrue(runtime["hover"]["gifSrc"].endswith(".gif"))
         self.assertEqual(runtime["hover"]["previewBefore"], runtime["hover"]["previewAfter"])
+
+    def test_runtime_uses_output_query_override_for_manifest_shard_and_preview_paths(self) -> None:
+        runtime = self._run_runtime({"stage1Count": 3, "locationSearch": "?output=/abs/output"})
+        self.assertIn("/abs/output/dashboard_manifest.js", runtime["loadCalls"])
+        self.assertIn("/abs/output/dashboard_stage1_000.js", runtime["loadCalls"])
+        self.assertTrue(runtime["hover"]["previewBefore"].startswith("/abs/output/previews/"))
+
+    def test_runtime_resolves_relative_gif_paths_from_manifest_output_metadata(self) -> None:
+        runtime = self._run_runtime(
+            {
+                "stage1Items": [
+                    {
+                        "id": "stage1-0",
+                        "name": "stage1 0",
+                        "gif_path": "clips/stage1-0.gif",
+                        "preview_path": "previews/stage1-0.webp",
+                        "group_id": "10",
+                        "group_size": 1,
+                        "is_noise": False,
+                        "stage": "stage1_same_source",
+                    }
+                ],
+                "manifestMeta": {"output_dir": "/custom/output"},
+                "actions": [{"type": "click-first-card"}],
+            }
+        )
+        self.assertEqual(runtime["hover"]["gifSrc"], "/custom/output/clips/stage1-0.gif")
+        self.assertEqual(runtime["selectedImageSrc"], "/custom/output/clips/stage1-0.gif")
 
     def test_runtime_renders_bounded_visible_slice(self) -> None:
         runtime = self._run_runtime({"stage1Count": 200})
