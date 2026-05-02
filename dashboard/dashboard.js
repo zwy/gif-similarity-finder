@@ -4,6 +4,7 @@
     stage2_action_clusters: "Stage 2 · Action clusters",
   };
   const STAGE_KEYS = ["stage1_same_source", "stage2_action_clusters"];
+  const ACTIVE_STAGE_STORAGE_KEY = "gif-dashboard-active-stage";
   const ROW_HEIGHT_PX = 184;
   const OVERSCAN_ROWS = 2;
   const MIN_GRID_COLUMNS = 1;
@@ -27,6 +28,7 @@
       selectedItem: null,
       selectedGifUnavailable: false,
       renderToken: 0,
+      warnings: [],
     };
     let elements = null;
     let manifestLoadPromise = null;
@@ -113,6 +115,57 @@
       return state.manifest[stageKey];
     }
 
+    function readStoredActiveStage() {
+      try {
+        if (!win.localStorage || typeof win.localStorage.getItem !== "function") {
+          return null;
+        }
+        const saved = win.localStorage.getItem(ACTIVE_STAGE_STORAGE_KEY);
+        if (STAGE_KEYS.includes(saved)) {
+          return saved;
+        }
+      } catch (error) {
+      }
+      return null;
+    }
+
+    function storeActiveStage(stageKey) {
+      try {
+        if (!win.localStorage || typeof win.localStorage.setItem !== "function") {
+          return;
+        }
+        win.localStorage.setItem(ACTIVE_STAGE_STORAGE_KEY, stageKey);
+      } catch (error) {
+      }
+    }
+
+    function addWarning(message) {
+      const text = escapeText(message).trim();
+      if (!text) {
+        return;
+      }
+      if (!state.warnings.includes(text)) {
+        state.warnings.push(text);
+      }
+      if (elements && elements.warning) {
+        elements.warning.className = "mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800";
+        elements.warning.textContent = state.warnings.join(" ");
+      }
+    }
+
+    function renderWarnings() {
+      if (!elements || !elements.warning) {
+        return;
+      }
+      if (!state.warnings.length) {
+        elements.warning.className = "mb-4 hidden rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800";
+        elements.warning.textContent = "";
+        return;
+      }
+      elements.warning.className = "mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800";
+      elements.warning.textContent = state.warnings.join(" ");
+    }
+
     function loadScript(src) {
       if (typeof deps.loadScript === "function") {
         return Promise.resolve(deps.loadScript(src));
@@ -138,12 +191,29 @@
       await manifestLoadPromise;
       state.manifest = win.__GIF_DASHBOARD_MANIFEST__ || {};
       state.manifestMeta = state.manifest.meta || {};
+      const manifestWarnings = Array.isArray(state.manifestMeta.warnings) ? state.manifestMeta.warnings : [];
+      manifestWarnings.forEach(addWarning);
       if (!state.manifest[state.activeStage]) {
         const firstKnownStage = STAGE_KEYS.find((key) => state.manifest[key]);
         if (firstKnownStage) {
           state.activeStage = firstKnownStage;
+        } else {
+          addWarning("Warning: manifest is missing required stage data.");
         }
       }
+      STAGE_KEYS.forEach((stageKey) => {
+        const stageConfig = state.manifest[stageKey];
+        if (!stageConfig) {
+          return;
+        }
+        if (!Array.isArray(stageConfig.shards)) {
+          addWarning("Warning: " + stageKey + " shards are missing or malformed in manifest.");
+          return;
+        }
+        if (stageConfig.shards.some((shard) => !shard || !shard.file_name)) {
+          addWarning("Warning: " + stageKey + " has shard entries without file_name.");
+        }
+      });
     }
 
     function getStageLoadState(stageKey) {
@@ -173,10 +243,25 @@
       const shardStore = (win.__GIF_DASHBOARD_STAGE_SHARDS__ = win.__GIF_DASHBOARD_STAGE_SHARDS__ || {});
       const nextShard = shardList[loadState.loadedShardCount];
       const fileName = nextShard.file_name;
+      if (!fileName) {
+        addWarning("Warning: missing shard file name for " + stageKey + ".");
+        loadState.loadedShardCount += 1;
+        loadState.fullyLoaded = loadState.loadedShardCount >= shardList.length;
+        state.stageItems[stageKey] = loadState.items;
+        return loadState.items;
+      }
       const shardKey = stageKey + ":" + fileName;
       loadState.loadingPromise = (async function () {
-        if (!shardStore[shardKey]) {
-          await loadScript(resolveOutputAssetPath(fileName));
+        try {
+          if (!shardStore[shardKey]) {
+            await loadScript(resolveOutputAssetPath(fileName));
+          }
+        } catch (error) {
+          addWarning("Warning: failed to load shard " + fileName + " for " + stageKey + ".");
+          loadState.loadedShardCount += 1;
+          loadState.fullyLoaded = loadState.loadedShardCount >= shardList.length;
+          state.stageItems[stageKey] = loadState.items;
+          return loadState.items;
         }
         const shardItems = shardStore[shardKey] || [];
         for (let itemIndex = 0; itemIndex < shardItems.length; itemIndex += 1) {
@@ -502,12 +587,25 @@
       state.filteredCount = filtered.length;
       state.visibleCount = visible.length;
       elements.grid.innerHTML = "";
+      renderWarnings();
 
       elements.grid.appendChild(createSpacer(window.startRow * ROW_HEIGHT_PX));
       for (let index = 0; index < visible.length; index += 1) {
         elements.grid.appendChild(renderCard(visible[index]));
       }
       elements.grid.appendChild(createSpacer((window.totalRows - window.endRow) * ROW_HEIGHT_PX));
+
+      if (elements.emptyState) {
+        if (filtered.length === 0) {
+          elements.emptyState.className =
+            "mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600";
+          elements.emptyState.textContent = "No items found for this stage and current filters.";
+        } else {
+          elements.emptyState.className =
+            "mt-4 hidden rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600";
+          elements.emptyState.textContent = "";
+        }
+      }
 
       if (state.selectedItem) {
         updateSelectedPanel(state.selectedItem);
@@ -516,12 +614,14 @@
 
     function scheduleRender() {
       renderGrid().catch((error) => {
+        addWarning("Warning: failed to render dashboard grid.");
         console.error(error);
       });
     }
 
     async function setStage(stageKey) {
       state.activeStage = stageKey;
+      storeActiveStage(stageKey);
       state.selectedItem = null;
       state.selectedGifUnavailable = false;
       if (elements && elements.grid) {
@@ -541,6 +641,8 @@
         minGroupSize: doc.getElementById("dashboard-min-group-size"),
         summary: doc.getElementById("dashboard-summary"),
         grid: doc.getElementById("dashboard-grid"),
+        warning: doc.getElementById("dashboard-warning"),
+        emptyState: doc.getElementById("dashboard-empty-state"),
         selectedPreview: doc.getElementById("selected-preview"),
         tabs: {
           stage1_same_source: doc.getElementById("stage-tab-stage1_same_source"),
@@ -552,9 +654,20 @@
       state.search = elements.search ? elements.search.value || "" : "";
       state.sortKey = elements.sort ? elements.sort.value || "name_asc" : "name_asc";
       state.minGroupSize = elements.minGroupSize ? readMinGroupSize(elements.minGroupSize.value) : 1;
+      const storedStage = readStoredActiveStage();
+      if (storedStage) {
+        state.activeStage = storedStage;
+      }
       updateSelectedPanel(null);
+      renderWarnings();
 
-      await ensureManifestLoaded();
+      try {
+        await ensureManifestLoaded();
+      } catch (error) {
+        addWarning("Warning: failed to load dashboard manifest.");
+        state.manifest = { meta: {} };
+        state.manifestMeta = {};
+      }
       await setStage(state.activeStage);
 
       if (elements.search) {

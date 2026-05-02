@@ -1,8 +1,14 @@
 from dataclasses import dataclass, asdict
+from datetime import datetime, timezone
 from pathlib import Path
 import re
 import hashlib
 from typing import List
+
+try:
+    from PIL import Image
+except Exception:  # pragma: no cover - best effort metadata
+    Image = None
 
 @dataclass(slots=True)
 class DashboardSummary:
@@ -22,6 +28,8 @@ class DashboardItem:
     group_size: int
     is_noise: bool
     stage: str
+    width: int | None = None
+    height: int | None = None
 
 @dataclass(slots=True)
 class DashboardStage:
@@ -52,6 +60,14 @@ def build_dashboard_stage(stage_key: str, groups: dict, preview_dir_name: str) -
             ppath = Path(p).resolve()
             sid = stable_item_id(ppath)
             preview = f"{preview_dir_name}/{sid}.webp"
+            width = None
+            height = None
+            if Image is not None:
+                try:
+                    with Image.open(ppath) as image:
+                        width, height = image.size
+                except Exception:
+                    pass
             item = DashboardItem(
                 id=sid,
                 name=ppath.stem,
@@ -61,6 +77,8 @@ def build_dashboard_stage(stage_key: str, groups: dict, preview_dir_name: str) -
                 group_size=group_size,
                 is_noise=is_noise_flag,
                 stage=stage_key,
+                width=width,
+                height=height,
             )
             items.append(item)
     total_items = len(items)
@@ -99,16 +117,40 @@ def split_stage_items(stage: DashboardStage, shard_size: int) -> list[DashboardS
     return shards
 
 
-def build_dashboard_manifest(output_dir: Path, stages: list[DashboardStage]) -> dict:
+def build_dashboard_manifest(
+    output_dir: Path,
+    stages: list[DashboardStage],
+    *,
+    preview_config: dict | None = None,
+    warnings: list[str] | None = None,
+) -> dict:
     manifest = {
         "meta": {
             "output_dir": str(output_dir.resolve()),
+            "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "available_stages": [stage.stage_key for stage in stages],
+            "preview": preview_config
+            or {
+                "dir": "previews",
+                "format": "webp",
+                "kind": "first_frame",
+            },
+            "warnings": warnings or [],
         }
     }
     for stage in stages:
         shards = split_stage_items(stage, shard_size=1000)
+        summary = asdict(stage.summary)
         manifest[stage.stage_key] = {
-            "summary": asdict(stage.summary),
+            "summary": summary,
+            "stage": {
+                "stage_key": stage.stage_key,
+                "item_count": summary["total_items"],
+                "group_count": summary["total_groups"],
+                "noise_count": summary["noise_items"],
+                "largest_group_size": summary["largest_group_size"],
+                "shard_count": len(shards),
+            },
             "shards": [
                 {
                     "file_name": s.file_name,

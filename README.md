@@ -104,7 +104,7 @@ dashboard/
 
 - 浏览器打开 `dashboard/index.html` 即可访问统一仪表盘入口。
 - 如结果不在默认 `../output`，可通过 `dashboard/index.html?output=/abs/output` 指定输出目录。
-- `output/dashboard_manifest.js` 记录每个阶段的 summary 与 shard 列表，供页面按需加载。
+- `output/dashboard_manifest.js` 记录 dataset 元信息（含 generated_at、preview 配置、warnings）、阶段 summary 与 shard 列表，供页面按需加载。
 - `output/dashboard_stage*.js` 是阶段数据分片，滚动和切换阶段时增量加载，避免一次性加载全部结果。
 - `output/previews/*.webp` 是离线预览图；悬停卡片时会回切到原 GIF，加载失败会回退预览图。
 - 当前提供的交互控件包括：`search`（按名称/路径/分组搜索）、`sort`（名称升序或分组大小降序）、`min-group-size`（最小分组大小过滤）和 `hide-noise`（隐藏噪声项）。

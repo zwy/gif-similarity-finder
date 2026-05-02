@@ -91,9 +91,23 @@ class DashboardUiTest(unittest.TestCase):
               },
             };
 
+            const localStorageState = { ...(config.initialLocalStorage || {}) };
+            const localStorage = {
+              getItem(key) {
+                return Object.prototype.hasOwnProperty.call(localStorageState, key) ? String(localStorageState[key]) : null;
+              },
+              setItem(key, value) {
+                localStorageState[key] = String(value);
+              },
+              removeItem(key) {
+                delete localStorageState[key];
+              },
+            };
+
             const windowObject = {
               console,
               document,
+              localStorage,
               location: {
                 search: config.locationSearch || '',
               },
@@ -172,10 +186,16 @@ class DashboardUiTest(unittest.TestCase):
               loadScript: async (src) => {
                 loadCalls.push(src);
                 if (src.includes('dashboard_manifest.js')) {
+                  if (config.failManifestLoad) {
+                    throw new Error('manifest load failed');
+                  }
                   context.window.__GIF_DASHBOARD_MANIFEST__ = manifest;
                   return;
                 }
                 const fileName = src.split('/').pop();
+                if ((config.failShardLoads || []).includes(fileName)) {
+                  throw new Error(`shard load failed: ${fileName}`);
+                }
                 for (const key of Object.keys(shardMap)) {
                   if (key.endsWith(`:${fileName}`)) {
                     context.window.__GIF_DASHBOARD_STAGE_SHARDS__[key] = shardMap[key];
@@ -250,6 +270,14 @@ class DashboardUiTest(unittest.TestCase):
                       cards[0].listeners['click']();
                       await flush();
                     }
+                  } else if (action.type === 'click-tab') {
+                    const stageKey = action.stageKey || 'stage1_same_source';
+                    const tabId = `stage-tab-${stageKey}`;
+                    const tab = elements[tabId];
+                    if (tab && tab.listeners['click']) {
+                      tab.listeners['click']();
+                      await flush();
+                    }
                   } else if (action.type === 'selected-preview-error') {
                     const selectedImage = elements['selected-preview'].children.find((child) => child.tagName === 'img');
                     if (selectedImage && typeof selectedImage.onerror === 'function') {
@@ -282,9 +310,14 @@ class DashboardUiTest(unittest.TestCase):
                   hover,
                   hoverPreviewAfterError: firstImage ? firstImage.src : null,
                   selectedImageSrc: selectedImage ? selectedImage.src : null,
-                  selectedPanelText: elements['selected-preview'].children.map((child) => child.textContent || '').join(' '),
-                  loadCalls,
-                }));
+                   selectedPanelText: elements['selected-preview'].children.map((child) => child.textContent || '').join(' '),
+                   summaryText: elements['dashboard-summary'].textContent,
+                   warningText: (elements['dashboard-warning'] && elements['dashboard-warning'].textContent) || '',
+                   emptyStateText: (elements['dashboard-empty-state'] && elements['dashboard-empty-state'].textContent) || '',
+                   activeTabStage: elements['stage-tab-stage2_action_clusters'].attributes['aria-selected'] === 'true' ? 'stage2_action_clusters' : 'stage1_same_source',
+                   storedActiveTab: localStorageState['gif-dashboard-active-stage'] || null,
+                   loadCalls,
+                 }));
               }).catch((error) => {
                 console.error(error);
                 process.exit(1);
@@ -312,7 +345,9 @@ class DashboardUiTest(unittest.TestCase):
         self.assertIn('id="dashboard-sort"', html)
         self.assertIn('id="dashboard-min-group-size"', html)
         self.assertIn('id="dashboard-summary"', html)
+        self.assertIn('id="dashboard-warning"', html)
         self.assertIn('id="dashboard-grid"', html)
+        self.assertIn('id="dashboard-empty-state"', html)
         self.assertIn('id="stage-tab-stage1_same_source"', html)
         self.assertIn('id="stage-tab-stage2_action_clusters"', html)
         self.assertIn('id="selected-preview"', html)
@@ -351,6 +386,35 @@ class DashboardUiTest(unittest.TestCase):
         )
         self.assertEqual(runtime["hover"]["gifSrc"], "/custom/output/clips/stage1-0.gif")
         self.assertEqual(runtime["selectedImageSrc"], "/custom/output/clips/stage1-0.gif")
+
+    def test_runtime_restores_active_tab_from_local_storage(self) -> None:
+        runtime = self._run_runtime(
+            {
+                "stage1Count": 2,
+                "stage2Count": 3,
+                "initialLocalStorage": {"gif-dashboard-active-stage": "stage2_action_clusters"},
+            }
+        )
+        self.assertEqual(runtime["activeTabStage"], "stage2_action_clusters")
+        self.assertIn("Stage 2", runtime["summaryText"])
+
+    def test_runtime_persists_active_tab_to_local_storage(self) -> None:
+        runtime = self._run_runtime(
+            {
+                "stage1Count": 2,
+                "stage2Count": 2,
+                "actions": [{"type": "click-tab", "stageKey": "stage2_action_clusters"}],
+            }
+        )
+        self.assertEqual(runtime["storedActiveTab"], "stage2_action_clusters")
+
+    def test_runtime_shows_warning_when_manifest_load_fails(self) -> None:
+        runtime = self._run_runtime({"failManifestLoad": True})
+        self.assertIn("warning", runtime["warningText"].lower())
+
+    def test_runtime_shows_empty_state_when_stage_has_no_items(self) -> None:
+        runtime = self._run_runtime({"stage1Items": []})
+        self.assertIn("no items", runtime["emptyStateText"].lower())
 
     def test_runtime_renders_bounded_visible_slice(self) -> None:
         runtime = self._run_runtime({"stage1Count": 200})

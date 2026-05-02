@@ -18,6 +18,7 @@ from .types import EmbeddingCacheData, PipelineConfig
 
 
 log = logging.getLogger(__name__)
+PREVIEW_SIZE = (240, 240)
 
 
 def _serialize_dashboard_items(items: list[object]) -> list[dict]:
@@ -106,5 +107,14 @@ def run_pipeline(config: PipelineConfig) -> None:
     else:
         log.info("Stage 2 skipped.")
 
-    manifest = build_dashboard_manifest(config.output_dir, dashboard_stages)
+    manifest = build_dashboard_manifest(
+        config.output_dir,
+        dashboard_stages,
+        preview_config={
+            "dir": "previews",
+            "format": "webp",
+            "kind": "first_frame",
+            "size": {"width": PREVIEW_SIZE[0], "height": PREVIEW_SIZE[1]},
+        },
+    )
     save_dashboard_manifest(config.output_dir / "dashboard_manifest.js", manifest)

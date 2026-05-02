@@ -302,7 +302,16 @@ class PipelineOrchestrationTest(unittest.TestCase):
                 mock.call(config.output_dir / stage2_shard.file_name, stage2_dashboard.stage_key, [asdict(item) for item in stage2_shard.items]),
             ]
         )
-        build_dashboard_manifest_mock.assert_called_once_with(config.output_dir, [stage1_dashboard, stage2_dashboard])
+        build_dashboard_manifest_mock.assert_called_once_with(
+            config.output_dir,
+            [stage1_dashboard, stage2_dashboard],
+            preview_config={
+                "dir": "previews",
+                "format": "webp",
+                "kind": "first_frame",
+                "size": {"width": 240, "height": 240},
+            },
+        )
         save_dashboard_manifest_mock.assert_called_once_with(config.output_dir / "dashboard_manifest.js", manifest_payload)
         save_embedding_cache_mock.assert_called_once()
         cache_call_args = save_embedding_cache_mock.call_args.args
@@ -373,7 +382,16 @@ class PipelineOrchestrationTest(unittest.TestCase):
             stage2_dashboard.stage_key,
             [asdict(item) for item in stage2_shard.items],
         )
-        build_dashboard_manifest_mock.assert_called_once_with(config.output_dir, [stage2_dashboard])
+        build_dashboard_manifest_mock.assert_called_once_with(
+            config.output_dir,
+            [stage2_dashboard],
+            preview_config={
+                "dir": "previews",
+                "format": "webp",
+                "kind": "first_frame",
+                "size": {"width": 240, "height": 240},
+            },
+        )
         save_dashboard_manifest_mock.assert_called_once_with(config.output_dir / "dashboard_manifest.js", manifest_payload)
         save_embedding_cache_mock.assert_called_once()
         save_hnsw_index_mock.assert_called_once_with(config.output_dir / "hnsw.index", stage2_result.embeddings)
@@ -435,7 +453,16 @@ class PipelineOrchestrationTest(unittest.TestCase):
             stage1_dashboard.stage_key,
             [asdict(item) for item in stage1_shard.items],
         )
-        build_dashboard_manifest_mock.assert_called_once_with(config.output_dir, [stage1_dashboard])
+        build_dashboard_manifest_mock.assert_called_once_with(
+            config.output_dir,
+            [stage1_dashboard],
+            preview_config={
+                "dir": "previews",
+                "format": "webp",
+                "kind": "first_frame",
+                "size": {"width": 240, "height": 240},
+            },
+        )
         save_dashboard_manifest_mock.assert_called_once_with(config.output_dir / "dashboard_manifest.js", manifest_payload)
         save_embedding_cache_mock.assert_not_called()
         save_hnsw_index_mock.assert_not_called()
@@ -507,7 +534,16 @@ class PipelineOrchestrationTest(unittest.TestCase):
             stage1_dashboard.stage_key,
             [asdict(item) for item in stage1_shard.items],
         )
-        build_dashboard_manifest_mock.assert_called_once_with(config.output_dir, [stage1_dashboard, stage2_dashboard])
+        build_dashboard_manifest_mock.assert_called_once_with(
+            config.output_dir,
+            [stage1_dashboard, stage2_dashboard],
+            preview_config={
+                "dir": "previews",
+                "format": "webp",
+                "kind": "first_frame",
+                "size": {"width": 240, "height": 240},
+            },
+        )
         save_dashboard_manifest_mock.assert_called_once_with(config.output_dir / "dashboard_manifest.js", manifest_payload)
         save_embedding_cache_mock.assert_not_called()
         save_hnsw_index_mock.assert_not_called()

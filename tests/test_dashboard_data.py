@@ -1,5 +1,8 @@
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from PIL import Image
 from gif_similarity_finder import dashboard_data as dd
 
 class TestDashboardData(unittest.TestCase):
@@ -76,6 +79,33 @@ class TestDashboardData(unittest.TestCase):
         self.assertEqual(shard["file_name"], "dashboard_stage1_000.js")
         self.assertEqual(shard["size"], 3)
         self.assertEqual(shard["path"], str(Path("out") / shard["file_name"]))
+        self.assertIn("generated_at", manifest["meta"])
+        self.assertIn("available_stages", manifest["meta"])
+        self.assertEqual(manifest["meta"]["available_stages"], ["stage1"])
+        self.assertIn("preview", manifest["meta"])
+
+    def test_build_dashboard_stage_best_effort_dimensions_when_available(self):
+        with TemporaryDirectory() as tmp_dir:
+            gif_path = Path(tmp_dir) / "sized.gif"
+            Image.new("RGB", (16, 11), color="red").save(gif_path, format="GIF")
+            stage = dd.build_dashboard_stage("stage1", {"g1": [str(gif_path)]}, preview_dir_name="previews")
+            self.assertEqual(stage.items[0].width, 16)
+            self.assertEqual(stage.items[0].height, 11)
+
+    def test_build_dashboard_manifest_includes_stage_details(self):
+        groups = {
+            "g1": ["/gifs/a.gif", "/gifs/b.gif"],
+            "-1": ["/gifs/c.gif"],
+        }
+        stage = dd.build_dashboard_stage("stage1", groups, preview_dir_name="previews")
+        manifest = dd.build_dashboard_manifest(Path("out"), [stage])
+        stage_manifest = manifest["stage1"]
+        self.assertIn("stage", stage_manifest)
+        self.assertEqual(stage_manifest["stage"]["stage_key"], "stage1")
+        self.assertEqual(stage_manifest["stage"]["item_count"], 3)
+        self.assertEqual(stage_manifest["stage"]["group_count"], 1)
+        self.assertEqual(stage_manifest["stage"]["noise_count"], 1)
+        self.assertEqual(stage_manifest["stage"]["shard_count"], 1)
 
 if __name__ == '__main__':
     unittest.main()
