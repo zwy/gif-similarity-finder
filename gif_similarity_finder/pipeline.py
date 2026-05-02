@@ -32,6 +32,30 @@ def _serialize_dashboard_items(items: list[object]) -> list[dict]:
     return payload
 
 
+def _persist_dashboard_stage_artifacts(
+    output_dir: Path,
+    stage: object,
+    saved_preview_targets: set[tuple[str, str]],
+) -> None:
+    for item in stage.items:
+        gif_path = Path(item.gif_path)
+        preview_path = output_dir / item.preview_path
+        dedupe_key = (str(gif_path), str(preview_path))
+        if dedupe_key in saved_preview_targets:
+            continue
+        if gif_path.exists():
+            save_preview_image(gif_path, preview_path)
+        saved_preview_targets.add(dedupe_key)
+
+    shards = split_stage_items(stage, shard_size=1000)
+    for shard in shards:
+        save_dashboard_stage_shard(
+            output_dir / shard.file_name,
+            stage.stage_key,
+            _serialize_dashboard_items(shard.items),
+        )
+
+
 def run_pipeline(config: PipelineConfig) -> None:
     config.output_dir.mkdir(parents=True, exist_ok=True)
     gif_paths = collect_gifs(config.input_dir)
@@ -39,11 +63,16 @@ def run_pipeline(config: PipelineConfig) -> None:
         raise SystemExit("No GIF files found. Check --input path.")
 
     dashboard_stages = []
+    saved_preview_targets: set[tuple[str, str]] = set()
     if not config.skip_stage1:
         stage1_result = run_stage1(gif_paths, hash_threshold=config.hash_threshold)
         save_group_json(config.output_dir / "stage1_same_source_groups.json", stage1_result.groups)
-        dashboard_stages.append(
-            build_dashboard_stage("stage1_same_source", stage1_result.groups, preview_dir_name="previews")
+        stage1_dashboard = build_dashboard_stage("stage1_same_source", stage1_result.groups, preview_dir_name="previews")
+        dashboard_stages.append(stage1_dashboard)
+        _persist_dashboard_stage_artifacts(
+            config.output_dir,
+            stage1_dashboard,
+            saved_preview_targets,
         )
     else:
         log.info("Stage 1 skipped.")
@@ -60,8 +89,12 @@ def run_pipeline(config: PipelineConfig) -> None:
             cache_data=cache_data,
         )
         save_group_json(config.output_dir / "stage2_action_clusters.json", stage2_result.groups)
-        dashboard_stages.append(
-            build_dashboard_stage("stage2_action_clusters", stage2_result.groups, preview_dir_name="previews")
+        stage2_dashboard = build_dashboard_stage("stage2_action_clusters", stage2_result.groups, preview_dir_name="previews")
+        dashboard_stages.append(stage2_dashboard)
+        _persist_dashboard_stage_artifacts(
+            config.output_dir,
+            stage2_dashboard,
+            saved_preview_targets,
         )
         if stage2_result.valid_paths:
             save_embedding_cache(
@@ -72,26 +105,6 @@ def run_pipeline(config: PipelineConfig) -> None:
             save_umap_visualization(config.output_dir, stage2_result.embeddings, stage2_result.labels)
     else:
         log.info("Stage 2 skipped.")
-
-    saved_preview_targets: set[tuple[str, str]] = set()
-    for stage in dashboard_stages:
-        for item in stage.items:
-            gif_path = Path(item.gif_path)
-            preview_path = config.output_dir / item.preview_path
-            dedupe_key = (str(gif_path), str(preview_path))
-            if dedupe_key in saved_preview_targets:
-                continue
-            if gif_path.exists():
-                save_preview_image(gif_path, preview_path)
-            saved_preview_targets.add(dedupe_key)
-
-        shards = split_stage_items(stage, shard_size=1000)
-        for shard in shards:
-            save_dashboard_stage_shard(
-                config.output_dir / shard.file_name,
-                stage.stage_key,
-                _serialize_dashboard_items(shard.items),
-            )
 
     manifest = build_dashboard_manifest(config.output_dir, dashboard_stages)
     save_dashboard_manifest(config.output_dir / "dashboard_manifest.js", manifest)

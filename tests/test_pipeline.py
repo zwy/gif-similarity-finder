@@ -513,6 +513,47 @@ class PipelineOrchestrationTest(unittest.TestCase):
         save_hnsw_index_mock.assert_not_called()
         save_umap_visualization_mock.assert_not_called()
 
+    def test_run_pipeline_persists_stage1_dashboard_artifacts_before_stage2_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = self.make_config(tmp_dir)
+            gif_a = Path(tmp_dir) / "a.gif"
+            gif_a.write_bytes(b"GIF89a")
+            gif_paths = [gif_a]
+            stage1_result = Stage1Result(groups={0: [str(gif_a)]}, hashed_paths=gif_paths, match_count=1)
+            stage1_dashboard = self.make_stage("stage1_same_source", [gif_a])
+            stage1_shard = DashboardShard(file_name="dashboard_stage1_000.js", items=stage1_dashboard.items)
+
+            with mock.patch("gif_similarity_finder.pipeline.collect_gifs", return_value=gif_paths), mock.patch(
+                "gif_similarity_finder.pipeline.run_stage1", return_value=stage1_result
+            ), mock.patch("gif_similarity_finder.pipeline.load_embedding_cache", return_value=None), mock.patch(
+                "gif_similarity_finder.pipeline.run_stage2", side_effect=RuntimeError("stage2 failed")
+            ), mock.patch("gif_similarity_finder.pipeline.save_group_json") as save_group_json_mock, mock.patch(
+                "gif_similarity_finder.pipeline.build_dashboard_stage",
+                return_value=stage1_dashboard,
+            ) as build_dashboard_stage_mock, mock.patch(
+                "gif_similarity_finder.pipeline.split_stage_items",
+                return_value=[stage1_shard],
+            ) as split_stage_items_mock, mock.patch(
+                "gif_similarity_finder.pipeline.save_preview_image"
+            ) as save_preview_image_mock, mock.patch(
+                "gif_similarity_finder.pipeline.save_dashboard_stage_shard"
+            ) as save_dashboard_stage_shard_mock, mock.patch(
+                "gif_similarity_finder.pipeline.save_dashboard_manifest"
+            ) as save_dashboard_manifest_mock:
+                with self.assertRaisesRegex(RuntimeError, "stage2 failed"):
+                    run_pipeline(config)
+
+        save_group_json_mock.assert_called_once_with(config.output_dir / "stage1_same_source_groups.json", stage1_result.groups)
+        build_dashboard_stage_mock.assert_called_once_with("stage1_same_source", stage1_result.groups, preview_dir_name="previews")
+        split_stage_items_mock.assert_called_once_with(stage1_dashboard, shard_size=1000)
+        save_preview_image_mock.assert_called_once_with(gif_a, config.output_dir / stage1_dashboard.items[0].preview_path)
+        save_dashboard_stage_shard_mock.assert_called_once_with(
+            config.output_dir / stage1_shard.file_name,
+            stage1_dashboard.stage_key,
+            [asdict(item) for item in stage1_shard.items],
+        )
+        save_dashboard_manifest_mock.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
