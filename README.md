@@ -86,20 +86,28 @@ output/
 ├── stage1_same_source_groups.json    # Stage 1：同源 GIF 分组（JSON）
 ├── stage2_action_clusters.json       # Stage 2：动作/场景聚类（JSON）
 ├── clip_embeddings_cache.npz         # CLIP 向量缓存（增量复用，无需重算）
-├── faiss.index                       # FAISS 索引（可用于后续查询）
-├── report_stage1_same_source.html    # Stage 1 离线 HTML 报告（浏览器打开）
-├── report_stage2_action_clusters.html# Stage 2 离线 HTML 报告（浏览器打开）
-└── umap_clusters.png                 # UMAP 2D 聚类散点图（可选）
+├── hnsw.index                        # HNSW 索引（可用于后续查询）
+├── dashboard_manifest.js             # Dashboard 清单（阶段摘要 + 分片索引）
+├── dashboard_stage1_000.js           # Stage 1 数据分片（按需加载，可能有多个）
+├── dashboard_stage2_000.js           # Stage 2 数据分片（按需加载，可能有多个）
+├── previews/                         # GIF 预览图（webp）
+│   └── <stable_id>.webp
+├── umap_clusters.png                 # UMAP 2D 聚类散点图（可选）
+└── ...
+
+dashboard/
+├── index.html                        # Dashboard 唯一入口（浏览器打开）
+└── dashboard.js                      # Dashboard 运行时脚本
 ```
 
-### HTML 报告说明
+### Dashboard 输出说明
 
-- `report_stage1_same_source.html` 和 `report_stage2_action_clusters.html` 都是**完全离线**的单文件 HTML，内联 CSS / JS，直接用浏览器打开即可。
-- 两份报告共用同一个离线 report shell，只是展示的数据集和阶段标签不同：Stage 1 显示同源分组，Stage 2 显示动作 / 场景聚类。
-- 当前卡片内容仍以文本信息为主，只显示文件名、分组 / 聚类元数据和文件路径，暂不提供 GIF 缩略图或动画预览。
-- 报告会把结构化数据 payload 直接嵌入 HTML，打开文件时由页面内脚本完成搜索、排序和列表刷新，不依赖外部接口或额外静态资源。
-- 为了降低大数据集时首屏 DOM 数量和初次渲染压力，报告 shell 当前只提供一个有限的首批预览：页面脚本会按当前筛选结果渲染前 24 个条目（`VISIBLE_SLICE_LIMIT`），暂时没有滚动加载、分页或“查看更多”入口，因此其余匹配项无法在页面内继续展开浏览。
-- 当前提供的交互控件包括：`search`（按文件名搜索）、`sort`（按分组 / 聚类大小或名称排序）和 `hide-noise`（隐藏噪声项）。
+- 浏览器打开 `dashboard/index.html` 即可访问统一仪表盘入口。
+- 如结果不在默认 `../output`，可通过 `dashboard/index.html?output=/abs/output` 指定输出目录。
+- `output/dashboard_manifest.js` 记录 dataset 元信息（含 generated_at、preview 配置、warnings）、阶段 summary 与 shard 列表，供页面按需加载。
+- `output/dashboard_stage*.js` 是阶段数据分片，滚动和切换阶段时增量加载，避免一次性加载全部结果。
+- `output/previews/*.webp` 是离线预览图；悬停卡片时会回切到原 GIF，加载失败会回退预览图。
+- 当前提供的交互控件包括：`search`（按名称/路径/分组搜索）、`sort`（名称升序或分组大小降序）、`min-group-size`（最小分组大小过滤）和 `hide-noise`（隐藏噪声项）。
 - 噪声簇（`-1`）默认隐藏；取消 `hide-noise` 后才会显示。
 
 ### JSON 格式示例
@@ -151,7 +159,8 @@ gif_similarity_finder/
     io.py          # GIF collection and frame sampling
     stage1.py      # pHash-based same-source grouping
     stage2.py      # CLIP embedding extraction and clustering
-    artifacts.py   # cache, json, report, index, visualization outputs
+    artifacts.py   # cache, json, index, visualization outputs
+    dashboard_*.py # dashboard data and output artifact generation
     pipeline.py    # orchestration
     types.py       # shared result models
 ```

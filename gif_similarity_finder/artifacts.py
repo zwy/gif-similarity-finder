@@ -5,8 +5,6 @@ from pathlib import Path
 import numpy as np
 
 from .types import EmbeddingCacheData
-from .report_data import build_report_dataset
-from .report_template import render_report_html
 
 
 def save_group_json(path: Path, groups: dict[int, list[str]]) -> Path:
@@ -34,26 +32,6 @@ def load_embedding_cache(path: Path) -> EmbeddingCacheData | None:
         paths = [Path(str(item)) for item in payload["paths"]]
         embeddings = payload["embeddings"].copy()
     return EmbeddingCacheData(paths=paths, embeddings=embeddings)
-
-
-def save_html_report(output_dir: Path, groups: dict[int, list[str]], stage: str) -> Path:
-    """Build a structured dataset and render the lightweight HTML shell.
-
-    Uses build_report_dataset and render_report_html to produce the
-    final HTML string, then writes it to report_{stage}.html inside
-    output_dir. IO errors are allowed to propagate.
-    """
-    html_path = output_dir / f"report_{stage}.html"
-
-    # Build the structured dataset and render the HTML shell
-    dataset = build_report_dataset(groups, stage=stage)
-    html = render_report_html(dataset)
-
-    # Ensure output directory exists and write the primary report.
-    output_dir.mkdir(parents=True, exist_ok=True)
-    html_path.write_text(html, encoding="utf-8")
-
-    return html_path
 
 
 def save_hnsw_index(path: Path, embeddings: np.ndarray) -> Path:
