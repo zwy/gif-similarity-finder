@@ -23,9 +23,9 @@ class TestDashboardData(unittest.TestCase):
         for item in stage.items:
             # name should be file stem
             self.assertIn(item.name, ["a", "b", "c", "d", "e", "f"])
-            # preview path ends with stable id + .webp and uses preview_dir_name
-            self.assertTrue(item.preview_path.startswith("previews/"))
-            self.assertTrue(item.preview_path.endswith(".webp"))
+            # preview path must equal previews/{stable_id}.webp
+            expected = f"previews/{dd.stable_item_id(Path(item.gif_path))}.webp"
+            self.assertEqual(item.preview_path, expected)
 
     def test_stable_item_id_is_deterministic(self):
         p = Path("/gifs/a.gif")
@@ -43,6 +43,25 @@ class TestDashboardData(unittest.TestCase):
         # filenames use fixed stage family mapping (stage1)
         expected_names = ["dashboard_stage1_000.js", "dashboard_stage1_001.js", "dashboard_stage1_002.js"]
         self.assertEqual([s.file_name for s in shards], expected_names)
+
+    def test_build_dashboard_manifest_json_serializable(self):
+        groups = {
+            "g1": ["/gifs/a.gif", "/gifs/b.gif"],
+            "-1": ["/gifs/c.gif"],
+        }
+        stage = dd.build_dashboard_stage("stage1", groups, preview_dir_name="previews")
+        manifest = dd.build_dashboard_manifest(Path("out"), [stage])
+        # Ensure JSON serialization works
+        import json
+        json.dumps(manifest)  # should not raise
+        # check shard list and summary values
+        self.assertIn("stage1", manifest)
+        self.assertEqual(manifest["stage1"]["summary"]["total_items"], 3)
+        self.assertEqual(len(manifest["stage1"]["shards"]), 1)
+        shard = manifest["stage1"]["shards"][0]
+        self.assertEqual(shard["file_name"], "dashboard_stage1_000.js")
+        self.assertEqual(shard["size"], 3)
+        self.assertEqual(shard["path"], str(Path("out") / shard["file_name"]))
 
 if __name__ == '__main__':
     unittest.main()
