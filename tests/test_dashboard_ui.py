@@ -67,6 +67,9 @@ class DashboardUiTest(unittest.TestCase):
             elements['dashboard-hide-noise'].checked = config.hideNoise !== false;
             elements['dashboard-search'].value = config.search || '';
             elements['dashboard-grid'].clientHeight = config.gridClientHeight || 736;
+            if (config.virtualColumnsDataset != null) {
+              elements['dashboard-grid'].dataset.virtualColumns = String(config.virtualColumnsDataset);
+            }
 
             const document = {
               readyState: 'complete',
@@ -93,6 +96,10 @@ class DashboardUiTest(unittest.TestCase):
               URLSearchParams,
               __GIF_DASHBOARD_STAGE_SHARDS__: {},
             };
+            windowObject.getComputedStyle = () => ({
+              gridTemplateColumns: config.gridTemplateColumns || '1fr 1fr 1fr 1fr',
+              getPropertyValue: (name) => (name === 'grid-template-columns' ? (config.gridTemplateColumns || '1fr 1fr 1fr 1fr') : ''),
+            });
             windowObject.window = windowObject;
 
             const context = {
@@ -334,6 +341,17 @@ class DashboardUiTest(unittest.TestCase):
             }
         )
         self.assertNotEqual(runtime["firstCardLabel"], "stage1 0")
+
+    def test_virtualization_uses_runtime_grid_layout_instead_of_fixed_columns(self) -> None:
+        runtime = self._run_runtime(
+            {
+                "stage1Count": 260,
+                "gridTemplateColumns": "1fr 1fr",
+                "virtualColumnsDataset": 4,
+                "actions": [{"type": "scroll", "scrollTop": 1840}],
+            }
+        )
+        self.assertEqual(runtime["firstCardLabel"], "stage1 16")
 
     def test_stage_shards_load_incrementally_on_demand(self) -> None:
         def shard(name: str, start: int, count: int) -> dict:

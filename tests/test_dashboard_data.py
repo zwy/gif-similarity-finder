@@ -34,6 +34,18 @@ class TestDashboardData(unittest.TestCase):
         self.assertEqual(id1, id2)
         self.assertEqual(len(id1), 16)
 
+    def test_build_dashboard_stage_normalizes_relative_gif_paths_to_absolute(self):
+        groups = {"g1": ["relative/path/a.gif"]}
+        stage = dd.build_dashboard_stage("stage1", groups, preview_dir_name="previews")
+        self.assertEqual(len(stage.items), 1)
+        expected_gif_path = str(Path("relative/path/a.gif").resolve())
+        self.assertEqual(stage.items[0].gif_path, expected_gif_path)
+        self.assertTrue(Path(stage.items[0].gif_path).is_absolute())
+        self.assertEqual(
+            stage.items[0].preview_path,
+            f"previews/{dd.stable_item_id(Path(expected_gif_path))}.webp",
+        )
+
     def test_split_stage_items_shards(self):
         groups = {"g1": [f"/gifs/{i}.gif" for i in range(5)]}
         stage = dd.build_dashboard_stage("stage1_same_source", groups, preview_dir_name="previews")

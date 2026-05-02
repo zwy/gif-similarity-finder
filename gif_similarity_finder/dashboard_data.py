@@ -49,7 +49,7 @@ def build_dashboard_stage(stage_key: str, groups: dict, preview_dir_name: str) -
         except Exception:
             is_noise_flag = False
         for p in paths:
-            ppath = Path(p)
+            ppath = Path(p).resolve()
             sid = stable_item_id(ppath)
             preview = f"{preview_dir_name}/{sid}.webp"
             item = DashboardItem(

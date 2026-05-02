@@ -6,7 +6,7 @@
   const STAGE_KEYS = ["stage1_same_source", "stage2_action_clusters"];
   const ROW_HEIGHT_PX = 184;
   const OVERSCAN_ROWS = 2;
-  const DEFAULT_GRID_COLUMNS = 4;
+  const MIN_GRID_COLUMNS = 1;
 
   function createRuntime(overrides) {
     const deps = overrides || {};
@@ -307,15 +307,60 @@
       return items.filter(matcher);
     }
 
+    function countTemplateColumns(template) {
+      const normalized = escapeText(template).trim();
+      if (!normalized || normalized === "none") {
+        return 0;
+      }
+      const repeatMatch = normalized.match(/^repeat\(\s*(\d+)\s*,[\s\S]+\)$/);
+      if (repeatMatch) {
+        return Number(repeatMatch[1]) || 0;
+      }
+      let depth = 0;
+      let token = "";
+      let count = 0;
+      for (let i = 0; i < normalized.length; i += 1) {
+        const ch = normalized[i];
+        if (ch === "(") {
+          depth += 1;
+        } else if (ch === ")" && depth > 0) {
+          depth -= 1;
+        }
+        if (/\s/.test(ch) && depth === 0) {
+          if (token) {
+            count += 1;
+            token = "";
+          }
+          continue;
+        }
+        token += ch;
+      }
+      if (token) {
+        count += 1;
+      }
+      return count;
+    }
+
     function getGridColumns() {
       if (!elements.grid) {
-        return DEFAULT_GRID_COLUMNS;
+        return MIN_GRID_COLUMNS;
       }
-      const configured = Number(elements.grid.dataset.virtualColumns || DEFAULT_GRID_COLUMNS);
-      if (!Number.isFinite(configured) || configured < 1) {
-        return DEFAULT_GRID_COLUMNS;
+      if (typeof deps.gridColumnCount === "number" && Number.isFinite(deps.gridColumnCount)) {
+        return Math.max(MIN_GRID_COLUMNS, Math.floor(deps.gridColumnCount));
       }
-      return Math.floor(configured);
+      let templateColumns = "";
+      if (typeof win.getComputedStyle === "function") {
+        const computedStyle = win.getComputedStyle(elements.grid);
+        templateColumns =
+          (computedStyle && computedStyle.getPropertyValue && computedStyle.getPropertyValue("grid-template-columns")) ||
+          (computedStyle && computedStyle.gridTemplateColumns) ||
+          "";
+      }
+      const derivedColumns = countTemplateColumns(templateColumns);
+      if (derivedColumns >= MIN_GRID_COLUMNS) {
+        return derivedColumns;
+      }
+      return MIN_GRID_COLUMNS;
     }
 
     function getVirtualWindow(totalItems) {
