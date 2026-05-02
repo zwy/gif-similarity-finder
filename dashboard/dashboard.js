@@ -6,6 +6,7 @@
   const STAGE_KEYS = ["stage1_same_source", "stage2_action_clusters"];
   const ACTIVE_STAGE_STORAGE_KEY = "gif-dashboard-active-stage";
   const ROW_HEIGHT_PX = 184;
+  const GROUP_HEADER_HEIGHT_PX = 48;
   const OVERSCAN_ROWS = 2;
   const MIN_GRID_COLUMNS = 1;
 
@@ -39,6 +40,14 @@
 
     function escapeText(value) {
       return String(value == null ? "" : value);
+    }
+
+    function escapeHtml(str) {
+      return String(str == null ? "" : str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
     }
 
     function trimTrailingSlash(path) {
@@ -333,6 +342,20 @@
       path.textContent = buildGifSrc(item);
       elements.selectedPreview.appendChild(path);
 
+      if (item.group_id) {
+        const groupInfo = doc.createElement("p");
+        groupInfo.className = "mt-2 text-xs text-slate-500";
+        groupInfo.textContent = "Group: " + escapeText(item.group_id);
+        elements.selectedPreview.appendChild(groupInfo);
+      }
+
+      if (item.group_size) {
+        const sizeInfo = doc.createElement("p");
+        sizeInfo.className = "mt-1 text-xs text-slate-500";
+        sizeInfo.textContent = "Group size: " + escapeText(item.group_size);
+        elements.selectedPreview.appendChild(sizeInfo);
+      }
+
       if (state.selectedGifUnavailable) {
         const unavailable = doc.createElement("p");
         unavailable.className = "mt-2 text-xs text-amber-700";
@@ -408,11 +431,20 @@
         }
         return 0;
       }
-      if (state.sortKey === "group_size_desc") {
-        const leftGroupSize = Number(leftItem.group_size) || 0;
-        const rightGroupSize = Number(rightItem.group_size) || 0;
-        if (leftGroupSize !== rightGroupSize) {
-          return rightGroupSize - leftGroupSize;
+      // Sort by group first, then by name within group
+      const leftGroup = escapeText(leftItem.group_id || "");
+      const rightGroup = escapeText(rightItem.group_id || "");
+      if (leftGroup !== rightGroup) {
+        if (state.sortKey === "group_size_desc") {
+          const leftGroupSize = Number(leftItem.group_size) || 0;
+          const rightGroupSize = Number(rightItem.group_size) || 0;
+          if (leftGroupSize !== rightGroupSize) {
+            return rightGroupSize - leftGroupSize;
+          }
+        }
+        const groupCmp = compareText(leftGroup, rightGroup);
+        if (groupCmp !== 0) {
+          return groupCmp;
         }
       }
       const leftName = escapeText(leftItem.name || leftItem.id);
@@ -448,6 +480,27 @@
       state.filterSortCacheKey = cacheKey;
       state.filterSortComputeCount += 1;
       return state.filterSortCacheItems;
+    }
+
+    /**
+     * Group sorted items by group_id.
+     * Returns an array of { groupId, groupSize, items[] } objects,
+     * preserving the sort order established by compareItems.
+     */
+    function groupItemsByGroupId(sortedItems) {
+      const groups = [];
+      const groupMap = new Map();
+      for (let i = 0; i < sortedItems.length; i++) {
+        const item = sortedItems[i];
+        const gid = escapeText(item.group_id || "");
+        if (!groupMap.has(gid)) {
+          const group = { groupId: gid, groupSize: Number(item.group_size) || 0, items: [] };
+          groupMap.set(gid, group);
+          groups.push(group);
+        }
+        groupMap.get(gid).items.push(item);
+      }
+      return groups;
     }
 
     function readMinGroupSize(rawValue) {
@@ -603,6 +656,39 @@
       return card;
     }
 
+    /**
+     * Render a full-width group header divider.
+     * Shows group ID, item count, flanked by horizontal rules.
+     */
+    function renderGroupHeader(groupId, groupSize, itemCount) {
+      const header = doc.createElement("div");
+      header.className = "dashboard-group-header col-span-full flex items-center gap-3 pt-3 pb-1";
+
+      const line1 = doc.createElement("div");
+      line1.className = "h-px flex-1 bg-slate-200";
+
+      const badge = doc.createElement("span");
+      badge.className =
+        "inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 " +
+        "text-xs font-medium text-slate-600 shadow-sm whitespace-nowrap";
+      badge.innerHTML =
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<rect x="2" y="7" width="20" height="14" rx="2"/>' +
+        '<path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>' +
+        '<span class="font-semibold text-slate-800">' + escapeHtml(groupId || "ungrouped") + "</span>" +
+        '<span class="text-slate-400">·</span>' +
+        '<span>' + itemCount + " item" + (itemCount !== 1 ? "s" : "") + "</span>";
+
+      const line2 = doc.createElement("div");
+      line2.className = "h-px flex-1 bg-slate-200";
+
+      header.appendChild(line1);
+      header.appendChild(badge);
+      header.appendChild(line2);
+      return header;
+    }
+
     function createSpacer(heightPx) {
       const spacer = doc.createElement("div");
       spacer.className = "dashboard-spacer col-span-full";
@@ -625,31 +711,43 @@
       if (renderToken !== state.renderToken) {
         return;
       }
+
       const filtered = filteredItemsForActiveStage();
-      const window = getVirtualWindow(filtered.length);
-      const visible = filtered.slice(window.startIndex, window.endIndex);
       state.filteredCount = filtered.length;
-      state.visibleCount = visible.length;
       elements.grid.innerHTML = "";
       renderWarnings();
 
-      elements.grid.appendChild(createSpacer(window.startRow * ROW_HEIGHT_PX));
-      for (let index = 0; index < visible.length; index += 1) {
-        elements.grid.appendChild(renderCard(visible[index]));
-      }
-      elements.grid.appendChild(createSpacer((window.totalRows - window.endRow) * ROW_HEIGHT_PX));
-
-      if (elements.emptyState) {
-        if (filtered.length === 0) {
+      if (filtered.length === 0) {
+        if (elements.emptyState) {
           elements.emptyState.className =
             "mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600";
           elements.emptyState.textContent = "No items found for this stage and current filters.";
-        } else {
-          elements.emptyState.className =
-            "mt-4 hidden rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600";
-          elements.emptyState.textContent = "";
+        }
+        return;
+      }
+
+      if (elements.emptyState) {
+        elements.emptyState.className =
+          "mt-4 hidden rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600";
+        elements.emptyState.textContent = "";
+      }
+
+      // Group items by group_id and render with section headers
+      const groups = groupItemsByGroupId(filtered);
+      let visibleCount = 0;
+
+      for (let gi = 0; gi < groups.length; gi++) {
+        const group = groups[gi];
+        elements.grid.appendChild(
+          renderGroupHeader(group.groupId, group.groupSize, group.items.length)
+        );
+        for (let ii = 0; ii < group.items.length; ii++) {
+          elements.grid.appendChild(renderCard(group.items[ii]));
+          visibleCount++;
         }
       }
+
+      state.visibleCount = visibleCount;
 
       if (state.selectedItem) {
         updateSelectedPanel(state.selectedItem);

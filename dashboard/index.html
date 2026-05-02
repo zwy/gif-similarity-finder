@@ -5,6 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GIF Similarity Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      /* Group header: ensure it always spans all grid columns */
+      .dashboard-group-header {
+        grid-column: 1 / -1;
+      }
+      /* Spacer also spans all columns */
+      .dashboard-spacer {
+        grid-column: 1 / -1;
+      }
+      /* Card hover state */
+      .dashboard-card {
+        cursor: pointer;
+        border-radius: 0.5rem;
+        padding: 0.5rem;
+        transition: background-color 0.15s ease, box-shadow 0.15s ease;
+      }
+      .dashboard-card:hover {
+        background-color: #f1f5f9;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      }
+    </style>
   </head>
   <body class="min-h-screen bg-slate-100 text-slate-900">
     <div id="dashboard-app" class="mx-auto grid min-h-screen max-w-[1800px] grid-cols-1 gap-4 p-4 lg:grid-cols-[18rem_1fr_22rem]">
