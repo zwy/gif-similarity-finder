@@ -35,6 +35,19 @@ def load_clip_model(device: str):
 
 
 # ---------------------------------------------------------------------------
+# Grayscale preprocessing — reduces colour/scene bias so CLIP focuses on
+# shape and motion patterns rather than colour tone or background palette.
+# Converts to "L" (luminance) then back to "RGB" so CLIP's 3-channel
+# preprocessing pipeline is unchanged.
+# ---------------------------------------------------------------------------
+
+def _to_grayscale_rgb(frame):
+    """Convert a PIL Image to grayscale while keeping 3 RGB channels."""
+    from PIL import Image
+    return frame.convert("L").convert("RGB")
+
+
+# ---------------------------------------------------------------------------
 # Cache key: (full_path, filesize, mtime) — survives folder renames,
 # uses full path to avoid collisions between same-named files in subdirs
 # ---------------------------------------------------------------------------
@@ -62,6 +75,7 @@ def _extract_one_by_one(
     device: str,
     n_frames: int,
     pool: str,
+    grayscale: bool,
 ) -> list[tuple[Path, np.ndarray]]:
     """Fallback: process GIFs individually when a whole batch fails."""
     import torch
@@ -73,6 +87,8 @@ def _extract_one_by_one(
             frames = sample_frames(path, n_frames)
             if not frames:
                 continue
+            if grayscale:
+                frames = [_to_grayscale_rgb(f) for f in frames]
             tensors = [preprocess(f) for f in frames]
             tensor = torch.stack(tensors).to(device)
             with torch.no_grad():
@@ -118,9 +134,15 @@ def extract_batch_embeddings(
     device: str,
     n_frames: int,
     pool: str = "weighted_mean",   # "mean" | "max" | "weighted_mean"
+    grayscale: bool = True,
 ) -> list[tuple[Path, np.ndarray]]:
     """
     Process a batch of GIFs in a single model.encode_image() call.
+
+    When grayscale=True (default), each frame is converted to luminance and
+    back to RGB before CLIP encoding. This strips colour information so that
+    embeddings reflect shape/motion patterns rather than colour tone, making
+    the similarity search less sensitive to background palette differences.
 
     Frame importance weights are computed in embedding space using cosine
     distance between consecutive frames — more semantically accurate than
@@ -143,6 +165,8 @@ def extract_batch_embeddings(
         if not frames:
             log.warning("No frames sampled from '%s', skipping.", path.name)
             continue
+        if grayscale:
+            frames = [_to_grayscale_rgb(f) for f in frames]
         per_gif_frames.append(frames)
         valid_paths.append(path)
 
@@ -163,7 +187,7 @@ def extract_batch_embeddings(
             all_emb = F.normalize(all_emb.float(), dim=-1)
     except Exception as exc:
         log.warning("Batch inference failed (%s), retrying individually…", exc)
-        return _extract_one_by_one(valid_paths, model, preprocess, device, n_frames, pool)
+        return _extract_one_by_one(valid_paths, model, preprocess, device, n_frames, pool, grayscale)
 
     # Split back per GIF and pool
     results: list[tuple[Path, np.ndarray]] = []
@@ -191,6 +215,7 @@ def extract_all_embeddings(
     batch_size: int,
     cache_data: EmbeddingCacheData | None,
     pool: str = "weighted_mean",
+    grayscale: bool = True,
 ) -> tuple[list[Path], np.ndarray]:
     # Build cache lookup by stable key
     cache_lookup: dict[str, np.ndarray] = {}
@@ -215,7 +240,7 @@ def extract_all_embeddings(
     # Process remaining in true batches
     for offset in tqdm(range(0, len(remaining), batch_size), desc="Extracting CLIP embeddings"):
         batch = remaining[offset : offset + batch_size]
-        pairs = extract_batch_embeddings(batch, model, preprocess, device, n_frames, pool=pool)
+        pairs = extract_batch_embeddings(batch, model, preprocess, device, n_frames, pool=pool, grayscale=grayscale)
         for path, emb in pairs:
             valid_paths.append(path)
             embedding_list.append(emb)
@@ -322,6 +347,7 @@ def run_stage2(
     device: str,
     cache_data: EmbeddingCacheData | None,
     pool: str = "weighted_mean",  # "mean" | "max" | "weighted_mean"
+    grayscale: bool = True,       # strip colour before CLIP encoding
 ) -> Stage2Result:
     model, preprocess, resolved_device = load_clip_model(device)
     valid_paths, embeddings = extract_all_embeddings(
@@ -333,6 +359,7 @@ def run_stage2(
         batch_size=batch_size,
         cache_data=cache_data,
         pool=pool,
+        grayscale=grayscale,
     )
     if len(valid_paths) == 0:
         return Stage2Result(
