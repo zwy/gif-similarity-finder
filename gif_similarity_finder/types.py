@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -15,7 +15,11 @@ class PipelineConfig:
     device: str
     skip_stage1: bool
     skip_stage2: bool
-    grayscale: bool = True  # strip colour before CLIP encoding to reduce scene bias
+    # Frame preprocessing mode for CLIP encoding:
+    #   "color"     — original RGB (no transformation)
+    #   "grayscale" — luminance only, reduces colour/scene bias  [default]
+    #   "edge"      — grayscale + edge enhancement, focuses on contours/pose
+    preprocess_mode: str = "grayscale"
 
 
 @dataclass(slots=True)

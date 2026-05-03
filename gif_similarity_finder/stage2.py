@@ -13,6 +13,13 @@ from .types import EmbeddingCacheData, Stage2Result
 
 log = logging.getLogger(__name__)
 
+# Preprocessing modes
+# - "color"     : original RGB frames (no preprocessing)
+# - "grayscale" : luminance-only, 3-channel RGB — strips colour bias
+# - "edge"      : grayscale + edge enhancement blended at alpha=0.4
+#                 focuses CLIP on shape/contour rather than region fill
+PREPROCESS_MODES = ("color", "grayscale", "edge")
+
 
 # ---------------------------------------------------------------------------
 # Device / Model
@@ -35,16 +42,36 @@ def load_clip_model(device: str):
 
 
 # ---------------------------------------------------------------------------
-# Grayscale preprocessing — reduces colour/scene bias so CLIP focuses on
-# shape and motion patterns rather than colour tone or background palette.
-# Converts to "L" (luminance) then back to "RGB" so CLIP's 3-channel
-# preprocessing pipeline is unchanged.
+# Frame preprocessing
 # ---------------------------------------------------------------------------
 
-def _to_grayscale_rgb(frame):
-    """Convert a PIL Image to grayscale while keeping 3 RGB channels."""
-    from PIL import Image
-    return frame.convert("L").convert("RGB")
+def _preprocess_frame(frame, mode: str):
+    """
+    Apply preprocessing to a single PIL Image before CLIP encoding.
+
+    Modes
+    -----
+    color     — no-op, returns original RGB frame.
+    grayscale — converts to luminance (L) then back to RGB (3-channel).
+                Strips colour/palette information so CLIP attends to shape.
+    edge      — grayscale base blended with FIND_EDGES output (alpha=0.4).
+                Enhances contours and motion outlines; reduces region-fill
+                dominance, pushing CLIP toward pose/silhouette similarity.
+    """
+    from PIL import Image, ImageFilter
+
+    if mode == "color":
+        return frame
+
+    gray = frame.convert("L")
+
+    if mode == "grayscale":
+        return gray.convert("RGB")
+
+    # mode == "edge"
+    edges = gray.filter(ImageFilter.FIND_EDGES)
+    blended = Image.blend(gray, edges, alpha=0.4)
+    return blended.convert("RGB")
 
 
 # ---------------------------------------------------------------------------
@@ -56,8 +83,6 @@ def _cache_key(path: Path) -> str:
     """Stable cache key based on full path + file identity."""
     try:
         stat = path.stat()
-        # Use str(path) (full path) instead of path.name to avoid collisions
-        # when the same filename exists in multiple subdirectories.
         raw = f"{path}:{stat.st_size}:{stat.st_mtime_ns}"
     except OSError:
         raw = str(path)
@@ -75,7 +100,7 @@ def _extract_one_by_one(
     device: str,
     n_frames: int,
     pool: str,
-    grayscale: bool,
+    preprocess_mode: str,
 ) -> list[tuple[Path, np.ndarray]]:
     """Fallback: process GIFs individually when a whole batch fails."""
     import torch
@@ -87,8 +112,7 @@ def _extract_one_by_one(
             frames = sample_frames(path, n_frames)
             if not frames:
                 continue
-            if grayscale:
-                frames = [_to_grayscale_rgb(f) for f in frames]
+            frames = [_preprocess_frame(f, preprocess_mode) for f in frames]
             tensors = [preprocess(f) for f in frames]
             tensor = torch.stack(tensors).to(device)
             with torch.no_grad():
@@ -113,13 +137,10 @@ def _pool(gif_emb, pool: str):
     elif pool == "weighted_mean":
         if count == 1:
             return gif_emb[0]
-        # Cosine distance between consecutive frames: 1 - dot(e_i, e_{i+1})
-        # Both vectors are already L2-normalised → dot product = cosine similarity.
-        # This is more semantically pure than L1 abs-diff and has the same cost.
-        cos_sim = (gif_emb[:-1] * gif_emb[1:]).sum(dim=1)       # [n_frames-1]
-        diffs = 1.0 - cos_sim.clamp(-1.0, 1.0)                  # cosine distance
-        first_w = diffs.mean().unsqueeze(0)                       # neutral baseline for frame 0
-        weights = torch.cat([first_w, diffs], dim=0)              # [n_frames]
+        cos_sim = (gif_emb[:-1] * gif_emb[1:]).sum(dim=1)
+        diffs = 1.0 - cos_sim.clamp(-1.0, 1.0)
+        first_w = diffs.mean().unsqueeze(0)
+        weights = torch.cat([first_w, diffs], dim=0)
         weights = weights / weights.sum()
         return (gif_emb * weights.unsqueeze(1)).sum(dim=0)
 
@@ -133,30 +154,27 @@ def extract_batch_embeddings(
     preprocess,
     device: str,
     n_frames: int,
-    pool: str = "weighted_mean",   # "mean" | "max" | "weighted_mean"
-    grayscale: bool = True,
+    pool: str = "weighted_mean",
+    preprocess_mode: str = "grayscale",
 ) -> list[tuple[Path, np.ndarray]]:
     """
     Process a batch of GIFs in a single model.encode_image() call.
 
-    When grayscale=True (default), each frame is converted to luminance and
-    back to RGB before CLIP encoding. This strips colour information so that
-    embeddings reflect shape/motion patterns rather than colour tone, making
-    the similarity search less sensitive to background palette differences.
+    preprocess_mode controls how frames are transformed before CLIP encoding:
+      "color"     — original RGB, no transformation
+      "grayscale" — strip colour, keep luminance only
+      "edge"      — grayscale + FIND_EDGES blend (alpha=0.4), emphasises
+                    contours and silhouettes for better action similarity
 
-    Frame importance weights are computed in embedding space using cosine
-    distance between consecutive frames — more semantically accurate than
-    pixel-space diff and runs entirely on GPU after encode_image().
+    Frame importance weights use cosine distance between consecutive embeddings
+    (weighted_mean pool) — runs on GPU after encode_image().
 
-    If the batch fails (e.g. a corrupt frame forces an error), the function
-    automatically retries each GIF individually so that one bad file cannot
-    silently discard an entire batch.
+    On batch failure, automatically retries each GIF individually.
     """
     import torch
     import torch.nn.functional as F
     from concurrent.futures import ThreadPoolExecutor
 
-    # Sample frames for each GIF
     per_gif_frames: list[list] = []
     valid_paths: list[Path] = []
 
@@ -165,15 +183,13 @@ def extract_batch_embeddings(
         if not frames:
             log.warning("No frames sampled from '%s', skipping.", path.name)
             continue
-        if grayscale:
-            frames = [_to_grayscale_rgb(f) for f in frames]
+        frames = [_preprocess_frame(f, preprocess_mode) for f in frames]
         per_gif_frames.append(frames)
         valid_paths.append(path)
 
     if not valid_paths:
         return []
 
-    # Flatten frames and preprocess in parallel (CPU-bound resize/normalize)
     all_frames_flat = [f for frames in per_gif_frames for f in frames]
     frame_counts = [len(frames) for frames in per_gif_frames]
 
@@ -181,19 +197,18 @@ def extract_batch_embeddings(
         all_tensors = list(ex.map(preprocess, all_frames_flat))
 
     try:
-        big_tensor = torch.stack(all_tensors).to(device)  # [total_frames, C, H, W]
+        big_tensor = torch.stack(all_tensors).to(device)
         with torch.no_grad():
-            all_emb = model.encode_image(big_tensor)       # [total_frames, D]
+            all_emb = model.encode_image(big_tensor)
             all_emb = F.normalize(all_emb.float(), dim=-1)
     except Exception as exc:
         log.warning("Batch inference failed (%s), retrying individually…", exc)
-        return _extract_one_by_one(valid_paths, model, preprocess, device, n_frames, pool, grayscale)
+        return _extract_one_by_one(valid_paths, model, preprocess, device, n_frames, pool, preprocess_mode)
 
-    # Split back per GIF and pool
     results: list[tuple[Path, np.ndarray]] = []
     cursor = 0
     for path, count in zip(valid_paths, frame_counts):
-        gif_emb = all_emb[cursor : cursor + count]  # [n_frames, D]
+        gif_emb = all_emb[cursor : cursor + count]
         cursor += count
         pooled = _pool(gif_emb, pool)
         pooled = F.normalize(pooled, dim=-1)
@@ -215,9 +230,8 @@ def extract_all_embeddings(
     batch_size: int,
     cache_data: EmbeddingCacheData | None,
     pool: str = "weighted_mean",
-    grayscale: bool = True,
+    preprocess_mode: str = "grayscale",
 ) -> tuple[list[Path], np.ndarray]:
-    # Build cache lookup by stable key
     cache_lookup: dict[str, np.ndarray] = {}
     if cache_data:
         for path, emb in zip(cache_data.paths, cache_data.embeddings):
@@ -237,10 +251,12 @@ def extract_all_embeddings(
 
     log.info("Cache hit: %d / %d  |  To process: %d", len(valid_paths), len(gif_paths), len(remaining))
 
-    # Process remaining in true batches
     for offset in tqdm(range(0, len(remaining), batch_size), desc="Extracting CLIP embeddings"):
         batch = remaining[offset : offset + batch_size]
-        pairs = extract_batch_embeddings(batch, model, preprocess, device, n_frames, pool=pool, grayscale=grayscale)
+        pairs = extract_batch_embeddings(
+            batch, model, preprocess, device, n_frames,
+            pool=pool, preprocess_mode=preprocess_mode,
+        )
         for path, emb in pairs:
             valid_paths.append(path)
             embedding_list.append(emb)
@@ -280,9 +296,6 @@ def _hdbscan_with_faiss_knn(embeddings: np.ndarray, min_cluster_size: int) -> np
     """
     For large datasets (>20k): use FAISS IVF to build an approximate KNN graph,
     then feed a precomputed sparse distance matrix to HDBSCAN.
-
-    nlist formula: clamp(4 * sqrt(n), 64, 4096) — empirically better recall
-    than the conservative sqrt(n) at 100k scale.
     """
     try:
         import faiss
@@ -303,8 +316,8 @@ def _hdbscan_with_faiss_knn(embeddings: np.ndarray, min_cluster_size: int) -> np
 
         log.info("FAISS IVF: nlist=%d, nprobe=%d, k=%d", nlist, nprobe, k)
 
-        distances, indices = index.search(embeddings, k + 1)  # +1 includes self
-        cos_distances = 1.0 - np.clip(distances[:, 1:], -1, 1)  # drop self (col 0)
+        distances, indices = index.search(embeddings, k + 1)
+        cos_distances = 1.0 - np.clip(distances[:, 1:], -1, 1)
         neighbours = indices[:, 1:]
 
         rows = np.repeat(np.arange(n), k)
@@ -346,9 +359,10 @@ def run_stage2(
     min_cluster_size: int,
     device: str,
     cache_data: EmbeddingCacheData | None,
-    pool: str = "weighted_mean",  # "mean" | "max" | "weighted_mean"
-    grayscale: bool = True,       # strip colour before CLIP encoding
+    pool: str = "weighted_mean",
+    preprocess_mode: str = "grayscale",  # "color" | "grayscale" | "edge"
 ) -> Stage2Result:
+    log.info("Stage 2 preprocess_mode: %s", preprocess_mode)
     model, preprocess, resolved_device = load_clip_model(device)
     valid_paths, embeddings = extract_all_embeddings(
         gif_paths=gif_paths,
@@ -359,7 +373,7 @@ def run_stage2(
         batch_size=batch_size,
         cache_data=cache_data,
         pool=pool,
-        grayscale=grayscale,
+        preprocess_mode=preprocess_mode,
     )
     if len(valid_paths) == 0:
         return Stage2Result(

@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 from gif_similarity_finder.pipeline import run_pipeline
+from gif_similarity_finder.stage2 import PREPROCESS_MODES
 from gif_similarity_finder.types import PipelineConfig
 
 
@@ -45,9 +46,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip_stage1", action="store_true", help="Skip same-source detection")
     parser.add_argument("--skip_stage2", action="store_true", help="Skip CLIP clustering")
     parser.add_argument(
-        "--no_grayscale",
-        action="store_true",
-        help="Disable grayscale preprocessing (use original colour frames for CLIP encoding)",
+        "--preprocess_mode",
+        default="grayscale",
+        choices=PREPROCESS_MODES,
+        help=(
+            "Frame preprocessing before CLIP encoding. "
+            "'color' = original RGB; "
+            "'grayscale' = strip colour (default); "
+            "'edge' = grayscale + edge enhancement, focuses on contours/pose"
+        ),
     )
     return parser.parse_args()
 
@@ -64,7 +71,7 @@ def main() -> None:
         device=args.device,
         skip_stage1=args.skip_stage1,
         skip_stage2=args.skip_stage2,
-        grayscale=not args.no_grayscale,
+        preprocess_mode=args.preprocess_mode,
     )
     started_at = time.time()
     run_pipeline(config)
