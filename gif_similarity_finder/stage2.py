@@ -35,14 +35,17 @@ def load_clip_model(device: str):
 
 
 # ---------------------------------------------------------------------------
-# Cache key: (filename, filesize, mtime) — survives folder renames
+# Cache key: (full_path, filesize, mtime) — survives folder renames,
+# uses full path to avoid collisions between same-named files in subdirs
 # ---------------------------------------------------------------------------
 
 def _cache_key(path: Path) -> str:
-    """Stable cache key based on file identity rather than path string."""
+    """Stable cache key based on full path + file identity."""
     try:
         stat = path.stat()
-        raw = f"{path.name}:{stat.st_size}:{stat.st_mtime_ns}"
+        # Use str(path) (full path) instead of path.name to avoid collisions
+        # when the same filename exists in multiple subdirectories.
+        raw = f"{path}:{stat.st_size}:{stat.st_mtime_ns}"
     except OSError:
         raw = str(path)
     return hashlib.md5(raw.encode()).hexdigest()
@@ -51,6 +54,62 @@ def _cache_key(path: Path) -> str:
 # ---------------------------------------------------------------------------
 # True batch CLIP inference
 # ---------------------------------------------------------------------------
+
+def _extract_one_by_one(
+    batch_paths: list[Path],
+    model,
+    preprocess,
+    device: str,
+    n_frames: int,
+    pool: str,
+) -> list[tuple[Path, np.ndarray]]:
+    """Fallback: process GIFs individually when a whole batch fails."""
+    import torch
+    import torch.nn.functional as F
+
+    results = []
+    for path in batch_paths:
+        try:
+            frames = sample_frames(path, n_frames)
+            if not frames:
+                continue
+            tensors = [preprocess(f) for f in frames]
+            tensor = torch.stack(tensors).to(device)
+            with torch.no_grad():
+                emb = model.encode_image(tensor)
+                emb = F.normalize(emb.float(), dim=-1)
+            pooled = _pool(emb, pool)
+            pooled = F.normalize(pooled, dim=-1)
+            results.append((path, pooled.cpu().numpy()))
+        except Exception as exc:
+            log.warning("Skipping '%s': %s", path.name, exc)
+    return results
+
+
+def _pool(gif_emb, pool: str):
+    """Pool a [n_frames, D] embedding tensor to [D]."""
+    import torch
+
+    count = gif_emb.shape[0]
+    if pool == "max":
+        return gif_emb.max(dim=0).values
+
+    elif pool == "weighted_mean":
+        if count == 1:
+            return gif_emb[0]
+        # Cosine distance between consecutive frames: 1 - dot(e_i, e_{i+1})
+        # Both vectors are already L2-normalised → dot product = cosine similarity.
+        # This is more semantically pure than L1 abs-diff and has the same cost.
+        cos_sim = (gif_emb[:-1] * gif_emb[1:]).sum(dim=1)       # [n_frames-1]
+        diffs = 1.0 - cos_sim.clamp(-1.0, 1.0)                  # cosine distance
+        first_w = diffs.mean().unsqueeze(0)                       # neutral baseline for frame 0
+        weights = torch.cat([first_w, diffs], dim=0)              # [n_frames]
+        weights = weights / weights.sum()
+        return (gif_emb * weights.unsqueeze(1)).sum(dim=0)
+
+    else:  # plain mean
+        return gif_emb.mean(dim=0)
+
 
 def extract_batch_embeddings(
     batch_paths: list[Path],
@@ -63,9 +122,13 @@ def extract_batch_embeddings(
     """
     Process a batch of GIFs in a single model.encode_image() call.
 
-    For weighted_mean pooling, weights are computed in embedding space
-    (cosine distance between consecutive frame embeddings) rather than
-    pixel space — more semantically accurate and much cheaper to compute.
+    Frame importance weights are computed in embedding space using cosine
+    distance between consecutive frames — more semantically accurate than
+    pixel-space diff and runs entirely on GPU after encode_image().
+
+    If the batch fails (e.g. a corrupt frame forces an error), the function
+    automatically retries each GIF individually so that one bad file cannot
+    silently discard an entire batch.
     """
     import torch
     import torch.nn.functional as F
@@ -99,34 +162,16 @@ def extract_batch_embeddings(
             all_emb = model.encode_image(big_tensor)       # [total_frames, D]
             all_emb = F.normalize(all_emb.float(), dim=-1)
     except Exception as exc:
-        log.warning("CLIP batch inference failed: %s", exc)
-        return []
+        log.warning("Batch inference failed (%s), retrying individually…", exc)
+        return _extract_one_by_one(valid_paths, model, preprocess, device, n_frames, pool)
 
-    # Split back per GIF, compute weights in embedding space, then pool
+    # Split back per GIF and pool
     results: list[tuple[Path, np.ndarray]] = []
     cursor = 0
     for path, count in zip(valid_paths, frame_counts):
         gif_emb = all_emb[cursor : cursor + count]  # [n_frames, D]
         cursor += count
-
-        if pool == "max":
-            pooled = gif_emb.max(dim=0).values
-
-        elif pool == "weighted_mean":
-            # Embedding-space inter-frame difference as importance weight.
-            # First frame gets the mean difference as a neutral baseline.
-            if count == 1:
-                pooled = gif_emb[0]
-            else:
-                diffs = (gif_emb[1:] - gif_emb[:-1]).abs().mean(dim=1)  # [n_frames-1]
-                first_w = diffs.mean().unsqueeze(0)                       # neutral baseline
-                weights = torch.cat([first_w, diffs], dim=0)              # [n_frames]
-                weights = weights / weights.sum()
-                pooled = (gif_emb * weights.unsqueeze(1)).sum(dim=0)
-
-        else:  # plain mean
-            pooled = gif_emb.mean(dim=0)
-
+        pooled = _pool(gif_emb, pool)
         pooled = F.normalize(pooled, dim=-1)
         results.append((path, pooled.cpu().numpy()))
 
@@ -222,9 +267,8 @@ def _hdbscan_with_faiss_knn(embeddings: np.ndarray, min_cluster_size: int) -> np
         n, d = embeddings.shape
         k = min(32, n - 1)
 
-        # Better nlist: 4*sqrt(n) gives ~1265 for n=100k vs the old 256
         nlist = int(np.clip(4 * np.sqrt(n), 64, 4096))
-        nprobe = max(1, nlist // 8)  # search ~12.5% of lists — good recall/speed tradeoff
+        nprobe = max(1, nlist // 8)
 
         quantizer = faiss.IndexFlatIP(d)
         index = faiss.IndexIVFFlat(quantizer, d, nlist, faiss.METRIC_INNER_PRODUCT)
