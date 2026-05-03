@@ -216,6 +216,7 @@ def cluster_hdbscan(embeddings: np.ndarray, min_cluster_size: int) -> np.ndarray
         min_samples=1,
         metric="cosine",
         cluster_selection_method="eom",
+        copy=False,
         n_jobs=max(1, (os.cpu_count() or 1) - 1),
     ).fit_predict(embeddings)
 
@@ -257,6 +258,7 @@ def _hdbscan_with_faiss_knn(embeddings: np.ndarray, min_cluster_size: int) -> np
             min_samples=1,
             metric="precomputed",
             cluster_selection_method="eom",
+            copy=False,
             n_jobs=max(1, (os.cpu_count() or 1) - 1),
         ).fit_predict(mat)
 
@@ -268,6 +270,7 @@ def _hdbscan_with_faiss_knn(embeddings: np.ndarray, min_cluster_size: int) -> np
             min_samples=1,
             metric="cosine",
             cluster_selection_method="eom",
+            copy=False,
             n_jobs=max(1, (os.cpu_count() or 1) - 1),
         ).fit_predict(embeddings)
 
