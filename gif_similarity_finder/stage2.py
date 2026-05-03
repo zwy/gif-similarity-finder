@@ -14,10 +14,9 @@ from .types import EmbeddingCacheData, Stage2Result
 log = logging.getLogger(__name__)
 
 # Preprocessing modes
-# - "color"     : original RGB frames (no preprocessing)
+# - "color"     : original RGB frames (no preprocessing)  [default]
 # - "grayscale" : luminance-only, 3-channel RGB — strips colour bias
 # - "edge"      : grayscale + edge enhancement blended at alpha=0.4
-#                 focuses CLIP on shape/contour rather than region fill
 PREPROCESS_MODES = ("color", "grayscale", "edge")
 
 
@@ -53,10 +52,7 @@ def _preprocess_frame(frame, mode: str):
     -----
     color     — no-op, returns original RGB frame.
     grayscale — converts to luminance (L) then back to RGB (3-channel).
-                Strips colour/palette information so CLIP attends to shape.
     edge      — grayscale base blended with FIND_EDGES output (alpha=0.4).
-                Enhances contours and motion outlines; reduces region-fill
-                dominance, pushing CLIP toward pose/silhouette similarity.
     """
     from PIL import Image, ImageFilter
 
@@ -75,8 +71,7 @@ def _preprocess_frame(frame, mode: str):
 
 
 # ---------------------------------------------------------------------------
-# Cache key: (full_path, filesize, mtime) — survives folder renames,
-# uses full path to avoid collisions between same-named files in subdirs
+# Cache key
 # ---------------------------------------------------------------------------
 
 def _cache_key(path: Path) -> str:
@@ -155,22 +150,8 @@ def extract_batch_embeddings(
     device: str,
     n_frames: int,
     pool: str = "weighted_mean",
-    preprocess_mode: str = "grayscale",
+    preprocess_mode: str = "color",
 ) -> list[tuple[Path, np.ndarray]]:
-    """
-    Process a batch of GIFs in a single model.encode_image() call.
-
-    preprocess_mode controls how frames are transformed before CLIP encoding:
-      "color"     — original RGB, no transformation
-      "grayscale" — strip colour, keep luminance only
-      "edge"      — grayscale + FIND_EDGES blend (alpha=0.4), emphasises
-                    contours and silhouettes for better action similarity
-
-    Frame importance weights use cosine distance between consecutive embeddings
-    (weighted_mean pool) — runs on GPU after encode_image().
-
-    On batch failure, automatically retries each GIF individually.
-    """
     import torch
     import torch.nn.functional as F
     from concurrent.futures import ThreadPoolExecutor
@@ -230,7 +211,7 @@ def extract_all_embeddings(
     batch_size: int,
     cache_data: EmbeddingCacheData | None,
     pool: str = "weighted_mean",
-    preprocess_mode: str = "grayscale",
+    preprocess_mode: str = "color",
 ) -> tuple[list[Path], np.ndarray]:
     cache_lookup: dict[str, np.ndarray] = {}
     if cache_data:
@@ -271,10 +252,6 @@ def extract_all_embeddings(
 # ---------------------------------------------------------------------------
 
 def cluster_hdbscan(embeddings: np.ndarray, min_cluster_size: int) -> np.ndarray:
-    """
-    HDBSCAN with cosine metric and multi-core support.
-    Automatically switches to FAISS-accelerated KNN for n > 20k.
-    """
     n = len(embeddings)
     log.info("Running HDBSCAN on %d vectors (dim=%d)", n, embeddings.shape[1])
 
@@ -293,10 +270,6 @@ def cluster_hdbscan(embeddings: np.ndarray, min_cluster_size: int) -> np.ndarray
 
 
 def _hdbscan_with_faiss_knn(embeddings: np.ndarray, min_cluster_size: int) -> np.ndarray:
-    """
-    For large datasets (>20k): use FAISS IVF to build an approximate KNN graph,
-    then feed a precomputed sparse distance matrix to HDBSCAN.
-    """
     try:
         import faiss
         from sklearn.cluster import HDBSCAN
@@ -304,7 +277,6 @@ def _hdbscan_with_faiss_knn(embeddings: np.ndarray, min_cluster_size: int) -> np
 
         n, d = embeddings.shape
         k = min(32, n - 1)
-
         nlist = int(np.clip(4 * np.sqrt(n), 64, 4096))
         nprobe = max(1, nlist // 8)
 
@@ -360,7 +332,7 @@ def run_stage2(
     device: str,
     cache_data: EmbeddingCacheData | None,
     pool: str = "weighted_mean",
-    preprocess_mode: str = "grayscale",  # "color" | "grayscale" | "edge"
+    preprocess_mode: str = "color",  # "color" | "grayscale" | "edge"
 ) -> Stage2Result:
     log.info("Stage 2 preprocess_mode: %s", preprocess_mode)
     model, preprocess, resolved_device = load_clip_model(device)

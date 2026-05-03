@@ -47,12 +47,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip_stage2", action="store_true", help="Skip CLIP clustering")
     parser.add_argument(
         "--preprocess_mode",
-        default="grayscale",
+        default="color",
         choices=PREPROCESS_MODES,
         help=(
-            "Frame preprocessing before CLIP encoding. "
-            "'color' = original RGB; "
-            "'grayscale' = strip colour (default); "
+            "Frame preprocessing before CLIP encoding (default: color). "
+            "'color' = original RGB, no transformation; "
+            "'grayscale' = strip colour, reduces scene/palette bias; "
             "'edge' = grayscale + edge enhancement, focuses on contours/pose"
         ),
     )
