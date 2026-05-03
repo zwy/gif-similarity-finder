@@ -5,7 +5,7 @@
 | 需求 | 阶段 | 技术 |
 |---|---|---|
 | 找来自同一视频截取的 GIF | Stage 1 | 感知哈希（pHash）+ 汉明距离 |
-| 找动作/场景相似的 GIF | Stage 2 | CLIP 多帧均值向量 + FAISS + HDBSCAN |
+| 找动作/场景相似的 GIF | Stage 2 | CLIP 多帧向量 + HDBSCAN + FAISS |
 
 ---
 
@@ -61,13 +61,14 @@ python gif_similarity.py --input /path/to/your/gif/folder
 
 ```bash
 python gif_similarity.py \
-  --input   /path/to/gifs \       # GIF 文件夹（必填）
-  --output  ./output \            # 输出目录（默认 ./output）
-  --frames  8 \                   # 每个 GIF 采样帧数，供 CLIP 使用（默认 8）
-  --hash_thresh 10 \              # 同源判定的汉明距离阈值（默认 10，越小越严格）
-  --min_cluster 3 \               # HDBSCAN 最小簇大小（默认 3）
-  --batch_size  32 \              # CLIP 推理批大小（默认 32）
-  --device  auto                  # 计算设备：auto / cpu / cuda / mps（默认 auto）
+  --input            /path/to/gifs \  # GIF 文件夹（必填）
+  --output           ./output \       # 输出目录（默认 ./output）
+  --frames           8 \              # 每个 GIF 采样帧数（默认 8）
+  --hash_thresh      10 \             # 同源判定汉明距离阈值（默认 10，越小越严格）
+  --min_cluster      3 \              # HDBSCAN 最小簇大小（默认 3）
+  --batch_size       32 \             # CLIP 推理批大小（默认 32）
+  --device           auto \           # 计算设备：auto / cpu / cuda / mps（默认 auto）
+  --preprocess_mode  color            # 帧预处理模式（默认 color，见下方说明）
 ```
 
 只跑某一阶段：
@@ -76,6 +77,32 @@ python gif_similarity.py \
 python gif_similarity.py --input /path/to/gifs --skip_stage1   # 只跑 CLIP 聚类
 python gif_similarity.py --input /path/to/gifs --skip_stage2   # 只跑同源检测
 ```
+
+---
+
+## 帧预处理模式（--preprocess_mode）
+
+Stage 2 在将帧送入 CLIP 之前，可以选择对帧做预处理以调整相似度的侧重点：
+
+| 模式 | 说明 | 适用场景 |
+|---|---|---|
+| `color`（默认） | 原始 RGB，不做任何处理 | 综合相似（动作 + 场景 + 颜色） |
+| `grayscale` | 转为灰度再还原 3 通道 | 降低颜色/背景色调对结果的影响 |
+| `edge` | 灰度 + 边缘增强（blend alpha=0.4） | 更聚焦于轮廓和姿态，适合找动作相似 |
+
+```bash
+# 默认：原始彩色
+python gif_similarity.py --input /path/to/gifs
+
+# 灰度：过滤颜色差异
+python gif_similarity.py --input /path/to/gifs --preprocess_mode grayscale
+
+# 边缘增强：聚焦姿态/动作轮廓
+python gif_similarity.py --input /path/to/gifs --preprocess_mode edge
+```
+
+> **注意**：切换 `preprocess_mode` 后，旧的 `output/clip_embeddings_cache.npz` 缓存
+> 与新模式不兼容，建议删除后重新运行，避免新旧向量混入同一次聚类。
 
 ---
 
@@ -100,7 +127,7 @@ dashboard/
 └── dashboard.js                      # Dashboard 运行时脚本
 ```
 
-### Dashboard 输出说明
+### Dashboard 使用说明
 
 - 浏览器打开 `dashboard/index.html` 即可访问统一仪表盘入口。
 - 如结果不在默认 `../output`，可通过 `dashboard/index.html?output=/abs/output` 指定输出目录。
@@ -134,7 +161,7 @@ dashboard/
 | FAISS 建索引 | ~2 分钟 | CPU |
 | HDBSCAN 聚类 | ~5–10 分钟 | CPU |
 
-> **Tip**：CLIP embedding 结果会缓存到 `output/clip_embeddings_cache.npz`，  
+> **Tip**：CLIP embedding 结果会缓存到 `output/clip_embeddings_cache.npz`，
 > 二次运行直接复用，只处理新增 GIF。
 
 ---
@@ -144,6 +171,7 @@ dashboard/
 - `--hash_thresh`：值越小越严格。建议先用 10，若误判同源太多则调低到 6。
 - `--min_cluster`：HDBSCAN 最小簇大小。GIF 库很大时可调高到 5–10 避免过多小簇。
 - `--frames`：采样帧越多，动作特征越准，但速度越慢。推荐 6–12。
+- `--preprocess_mode`：默认 `color`。如果聚类结果受背景颜色干扰明显，可尝试 `grayscale`；如果想更聚焦动作姿态轮廓，可尝试 `edge`。
 
 ---
 
@@ -159,10 +187,11 @@ gif_similarity_finder/
     io.py          # GIF collection and frame sampling
     stage1.py      # pHash-based same-source grouping
     stage2.py      # CLIP embedding extraction and clustering
+                   #   preprocess modes: color / grayscale / edge
     artifacts.py   # cache, json, index, visualization outputs
     dashboard_*.py # dashboard data and output artifact generation
     pipeline.py    # orchestration
-    types.py       # shared result models
+    types.py       # shared result models (PipelineConfig, Stage1/2Result, ...)
 ```
 
 ---
