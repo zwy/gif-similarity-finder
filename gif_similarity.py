@@ -44,6 +44,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--skip_stage1", action="store_true", help="Skip same-source detection")
     parser.add_argument("--skip_stage2", action="store_true", help="Skip CLIP clustering")
+    parser.add_argument(
+        "--no_grayscale",
+        action="store_true",
+        help="Disable grayscale preprocessing (use original colour frames for CLIP encoding)",
+    )
     return parser.parse_args()
 
 
@@ -59,6 +64,7 @@ def main() -> None:
         device=args.device,
         skip_stage1=args.skip_stage1,
         skip_stage2=args.skip_stage2,
+        grayscale=not args.no_grayscale,
     )
     started_at = time.time()
     run_pipeline(config)

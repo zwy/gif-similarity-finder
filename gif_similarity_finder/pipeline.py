@@ -105,6 +105,7 @@ def run_pipeline(config: PipelineConfig) -> None:
             min_cluster_size=config.min_cluster_size,
             device=config.device,
             cache_data=cache_data,
+            grayscale=config.grayscale,
         )
         save_group_json(config.output_dir / "stage2_action_clusters.json", stage2_result.groups)
         stage2_dashboard = build_dashboard_stage("stage2_action_clusters", stage2_result.groups, preview_dir_name="previews")

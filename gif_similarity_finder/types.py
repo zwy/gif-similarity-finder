@@ -15,6 +15,7 @@ class PipelineConfig:
     device: str
     skip_stage1: bool
     skip_stage2: bool
+    grayscale: bool = True  # strip colour before CLIP encoding to reduce scene bias
 
 
 @dataclass(slots=True)
