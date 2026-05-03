@@ -35,7 +35,7 @@ def load_clip_model(device: str):
 
 
 # ---------------------------------------------------------------------------
-# Cache key: (filename, filesize, mtime) — survives content changes, robust to renames
+# Cache key: (filename, filesize, mtime) — survives folder renames
 # ---------------------------------------------------------------------------
 
 def _cache_key(path: Path) -> str:
@@ -194,42 +194,38 @@ def extract_all_embeddings(
 
 
 # ---------------------------------------------------------------------------
-# FAISS-accelerated HDBSCAN
+# HDBSCAN clustering
 # ---------------------------------------------------------------------------
 
 def cluster_hdbscan(embeddings: np.ndarray, min_cluster_size: int) -> np.ndarray:
     """
     HDBSCAN with:
     - cosine metric (appropriate for L2-normalized CLIP vectors)
-    - approx_min_span_tree for large-scale speed
     - multi-core core distance computation
     - optional FAISS-precomputed KNN graph for very large datasets (n > 20k)
     """
-    from sklearn.cluster import HDBSCAN
-
     n = len(embeddings)
     log.info("Running HDBSCAN on %d vectors (dim=%d)", n, embeddings.shape[1])
 
     if n > 20_000:
-        labels = _hdbscan_with_faiss_knn(embeddings, min_cluster_size)
-    else:
-        labels = HDBSCAN(
-            min_cluster_size=min_cluster_size,
-            min_samples=1,
-            metric="cosine",
-            cluster_selection_method="eom",
-            approx_min_span_tree=True,
-            core_dist_n_jobs=max(1, (os.cpu_count() or 1) - 1),
-        ).fit_predict(embeddings)
+        return _hdbscan_with_faiss_knn(embeddings, min_cluster_size)
 
-    return labels
+    from sklearn.cluster import HDBSCAN
+    return HDBSCAN(
+        min_cluster_size=min_cluster_size,
+        min_samples=1,
+        metric="cosine",
+        cluster_selection_method="eom",
+        n_jobs=max(1, (os.cpu_count() or 1) - 1),
+    ).fit_predict(embeddings)
 
 
 def _hdbscan_with_faiss_knn(embeddings: np.ndarray, min_cluster_size: int) -> np.ndarray:
     """
-    For large datasets: use FAISS to build an approximate KNN graph, then
-    feed a precomputed sparse distance matrix to HDBSCAN.
-    Embeddings must be L2-normalized (cosine = inner product for unit vecs).
+    For large datasets (>20k): use FAISS IVF to build approximate KNN graph,
+    then feed a precomputed sparse distance matrix to HDBSCAN.
+    Embeddings must be L2-normalized (cosine similarity = inner product).
+    Falls back to plain sklearn HDBSCAN if faiss is not installed.
     """
     try:
         import faiss
@@ -237,9 +233,8 @@ def _hdbscan_with_faiss_knn(embeddings: np.ndarray, min_cluster_size: int) -> np
         from scipy.sparse import csr_matrix
 
         n, d = embeddings.shape
-        k = min(32, n - 1)  # neighbours per point
+        k = min(32, n - 1)
 
-        # IVF index for approximate search — much faster than brute-force at scale
         nlist = min(int(np.sqrt(n)), 256)
         quantizer = faiss.IndexFlatIP(d)
         index = faiss.IndexIVFFlat(quantizer, d, nlist, faiss.METRIC_INNER_PRODUCT)
@@ -248,27 +243,22 @@ def _hdbscan_with_faiss_knn(embeddings: np.ndarray, min_cluster_size: int) -> np
         index.nprobe = min(nlist, 32)
 
         distances, indices = index.search(embeddings, k + 1)  # +1 includes self
-        # distances from IP to cosine distance: cos_dist = 1 - IP (vecs are normalized)
-        cos_distances = 1.0 - np.clip(distances[:, 1:], -1, 1)  # drop self (col 0)
+        cos_distances = 1.0 - np.clip(distances[:, 1:], -1, 1)
         neighbours = indices[:, 1:]
 
-        # Build sparse symmetric distance matrix
         rows = np.repeat(np.arange(n), k)
         cols = neighbours.ravel()
         data = cos_distances.ravel()
         mat = csr_matrix((data, (rows, cols)), shape=(n, n))
-        # Symmetrize
         mat = (mat + mat.T) / 2
 
-        labels = HDBSCAN(
+        return HDBSCAN(
             min_cluster_size=min_cluster_size,
             min_samples=1,
             metric="precomputed",
             cluster_selection_method="eom",
-            approx_min_span_tree=True,
-            core_dist_n_jobs=max(1, (os.cpu_count() or 1) - 1),
+            n_jobs=max(1, (os.cpu_count() or 1) - 1),
         ).fit_predict(mat)
-        return labels
 
     except ImportError:
         log.warning("faiss not available for large-scale KNN; falling back to sklearn HDBSCAN.")
@@ -278,8 +268,7 @@ def _hdbscan_with_faiss_knn(embeddings: np.ndarray, min_cluster_size: int) -> np
             min_samples=1,
             metric="cosine",
             cluster_selection_method="eom",
-            approx_min_span_tree=True,
-            core_dist_n_jobs=max(1, (os.cpu_count() or 1) - 1),
+            n_jobs=max(1, (os.cpu_count() or 1) - 1),
         ).fit_predict(embeddings)
 
 
