@@ -49,30 +49,6 @@ def _cache_key(path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Frame-weighted pooling helpers
-# ---------------------------------------------------------------------------
-
-def _frame_diff_weights(frames) -> np.ndarray:
-    """
-    Compute per-frame importance weights via mean absolute pixel difference
-    to the previous frame. The first frame always gets weight 1.0.
-    Returns a float32 array summing to 1.
-    """
-    if len(frames) == 1:
-        return np.array([1.0], dtype=np.float32)
-
-    arrays = [np.asarray(f, dtype=np.float32) for f in frames]
-    diffs = [1.0]  # first frame baseline weight
-    for i in range(1, len(arrays)):
-        diff = np.mean(np.abs(arrays[i] - arrays[i - 1]))
-        diffs.append(float(diff) + 1e-6)  # avoid zero weights
-
-    weights = np.array(diffs, dtype=np.float32)
-    weights /= weights.sum()
-    return weights
-
-
-# ---------------------------------------------------------------------------
 # True batch CLIP inference
 # ---------------------------------------------------------------------------
 
@@ -86,13 +62,17 @@ def extract_batch_embeddings(
 ) -> list[tuple[Path, np.ndarray]]:
     """
     Process a batch of GIFs in a single model.encode_image() call.
-    Returns a list of (path, embedding) for successfully processed GIFs.
+
+    For weighted_mean pooling, weights are computed in embedding space
+    (cosine distance between consecutive frame embeddings) rather than
+    pixel space — more semantically accurate and much cheaper to compute.
     """
     import torch
     import torch.nn.functional as F
+    from concurrent.futures import ThreadPoolExecutor
 
+    # Sample frames for each GIF
     per_gif_frames: list[list] = []
-    per_gif_weights: list[np.ndarray] = []
     valid_paths: list[Path] = []
 
     for path in batch_paths:
@@ -100,21 +80,18 @@ def extract_batch_embeddings(
         if not frames:
             log.warning("No frames sampled from '%s', skipping.", path.name)
             continue
-        weights = _frame_diff_weights(frames) if pool == "weighted_mean" else None
         per_gif_frames.append(frames)
-        per_gif_weights.append(weights)
         valid_paths.append(path)
 
     if not valid_paths:
         return []
 
-    # Flatten all frames into one big batch tensor
-    all_tensors: list = []
-    frame_counts: list[int] = []
-    for frames in per_gif_frames:
-        tensors = [preprocess(f) for f in frames]
-        all_tensors.extend(tensors)
-        frame_counts.append(len(tensors))
+    # Flatten frames and preprocess in parallel (CPU-bound resize/normalize)
+    all_frames_flat = [f for frames in per_gif_frames for f in frames]
+    frame_counts = [len(frames) for frames in per_gif_frames]
+
+    with ThreadPoolExecutor() as ex:
+        all_tensors = list(ex.map(preprocess, all_frames_flat))
 
     try:
         big_tensor = torch.stack(all_tensors).to(device)  # [total_frames, C, H, W]
@@ -125,18 +102,28 @@ def extract_batch_embeddings(
         log.warning("CLIP batch inference failed: %s", exc)
         return []
 
-    # Split back per GIF and pool
+    # Split back per GIF, compute weights in embedding space, then pool
     results: list[tuple[Path, np.ndarray]] = []
     cursor = 0
-    for i, (path, count) in enumerate(zip(valid_paths, frame_counts)):
+    for path, count in zip(valid_paths, frame_counts):
         gif_emb = all_emb[cursor : cursor + count]  # [n_frames, D]
         cursor += count
 
         if pool == "max":
             pooled = gif_emb.max(dim=0).values
+
         elif pool == "weighted_mean":
-            w = torch.tensor(per_gif_weights[i], dtype=torch.float32, device=device)
-            pooled = (gif_emb * w.unsqueeze(1)).sum(dim=0)
+            # Embedding-space inter-frame difference as importance weight.
+            # First frame gets the mean difference as a neutral baseline.
+            if count == 1:
+                pooled = gif_emb[0]
+            else:
+                diffs = (gif_emb[1:] - gif_emb[:-1]).abs().mean(dim=1)  # [n_frames-1]
+                first_w = diffs.mean().unsqueeze(0)                       # neutral baseline
+                weights = torch.cat([first_w, diffs], dim=0)              # [n_frames]
+                weights = weights / weights.sum()
+                pooled = (gif_emb * weights.unsqueeze(1)).sum(dim=0)
+
         else:  # plain mean
             pooled = gif_emb.mean(dim=0)
 
@@ -199,10 +186,8 @@ def extract_all_embeddings(
 
 def cluster_hdbscan(embeddings: np.ndarray, min_cluster_size: int) -> np.ndarray:
     """
-    HDBSCAN with:
-    - cosine metric (appropriate for L2-normalized CLIP vectors)
-    - multi-core core distance computation
-    - optional FAISS-precomputed KNN graph for very large datasets (n > 20k)
+    HDBSCAN with cosine metric and multi-core support.
+    Automatically switches to FAISS-accelerated KNN for n > 20k.
     """
     n = len(embeddings)
     log.info("Running HDBSCAN on %d vectors (dim=%d)", n, embeddings.shape[1])
@@ -223,10 +208,11 @@ def cluster_hdbscan(embeddings: np.ndarray, min_cluster_size: int) -> np.ndarray
 
 def _hdbscan_with_faiss_knn(embeddings: np.ndarray, min_cluster_size: int) -> np.ndarray:
     """
-    For large datasets (>20k): use FAISS IVF to build approximate KNN graph,
+    For large datasets (>20k): use FAISS IVF to build an approximate KNN graph,
     then feed a precomputed sparse distance matrix to HDBSCAN.
-    Embeddings must be L2-normalized (cosine similarity = inner product).
-    Falls back to plain sklearn HDBSCAN if faiss is not installed.
+
+    nlist formula: clamp(4 * sqrt(n), 64, 4096) — empirically better recall
+    than the conservative sqrt(n) at 100k scale.
     """
     try:
         import faiss
@@ -236,15 +222,20 @@ def _hdbscan_with_faiss_knn(embeddings: np.ndarray, min_cluster_size: int) -> np
         n, d = embeddings.shape
         k = min(32, n - 1)
 
-        nlist = min(int(np.sqrt(n)), 256)
+        # Better nlist: 4*sqrt(n) gives ~1265 for n=100k vs the old 256
+        nlist = int(np.clip(4 * np.sqrt(n), 64, 4096))
+        nprobe = max(1, nlist // 8)  # search ~12.5% of lists — good recall/speed tradeoff
+
         quantizer = faiss.IndexFlatIP(d)
         index = faiss.IndexIVFFlat(quantizer, d, nlist, faiss.METRIC_INNER_PRODUCT)
         index.train(embeddings)
         index.add(embeddings)
-        index.nprobe = min(nlist, 32)
+        index.nprobe = nprobe
+
+        log.info("FAISS IVF: nlist=%d, nprobe=%d, k=%d", nlist, nprobe, k)
 
         distances, indices = index.search(embeddings, k + 1)  # +1 includes self
-        cos_distances = 1.0 - np.clip(distances[:, 1:], -1, 1)
+        cos_distances = 1.0 - np.clip(distances[:, 1:], -1, 1)  # drop self (col 0)
         neighbours = indices[:, 1:]
 
         rows = np.repeat(np.arange(n), k)
@@ -263,7 +254,7 @@ def _hdbscan_with_faiss_knn(embeddings: np.ndarray, min_cluster_size: int) -> np
         ).fit_predict(mat)
 
     except ImportError:
-        log.warning("faiss not available for large-scale KNN; falling back to sklearn HDBSCAN.")
+        log.warning("faiss not available; falling back to sklearn HDBSCAN.")
         from sklearn.cluster import HDBSCAN
         return HDBSCAN(
             min_cluster_size=min_cluster_size,
